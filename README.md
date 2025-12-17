@@ -4,7 +4,7 @@ Here is a comprehensive `README.md` file for your GitHub repository. It document
 
 # Crow/AAP Alarm IP Module for Home Assistant
 
-This is a custom component for Home Assistant to integrate **Crow Runner** and **AAP (Arrowhead Alarm Products)** alarm systems equipped with the **IP Module** (IA-IP-MODULE).
+This is a custom component for Home Assistant to integrate **Crow Runner** and **AAP (Arrowhead Alarm Products)** alarm systems equipped with the **IP Module** (IA-IP-MODULE) running Firmware Ver 2.10.3628 2017 Oct 20 09:48:43.
 
 It communicates directly with the IP module over the local network to provide real-time status updates and control.
 
