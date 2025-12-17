@@ -8,6 +8,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.const import CONF_HOST
 
 from .const import (
     DOMAIN,
@@ -26,13 +27,12 @@ async def async_setup_entry(
     """Set up the Crow IP Module switches."""
     controller = hass.data[DOMAIN][entry.entry_id]
     options = entry.options
+    host = entry.data[CONF_HOST] # FIX
     
     entities = []
 
-    # Configured Outputs
     configured_outputs = options.get(CONF_OUTPUTS, {})
     
-    # Fallback für Outputs 3 & 4 falls nicht im ConfigFlow (da Nutzer danach fragte)
     if not configured_outputs:
          configured_outputs = {
              "3": {"name": "Modem"},
@@ -42,21 +42,20 @@ async def async_setup_entry(
     for output_num_str, output_data in configured_outputs.items():
         output_num = int(output_num_str)
         name = output_data.get("name", f"Output {output_num}")
-        entities.append(CrowOutput(controller, output_num, name))
+        entities.append(CrowOutput(controller, host, output_num, name))
 
-    # Relays
     for relay_num in range(1, 3):
-        entities.append(CrowRelay(controller, relay_num))
+        entities.append(CrowRelay(controller, host, relay_num))
 
     async_add_entities(entities)
 
 
 class CrowBaseSwitch(SwitchEntity):
-    """Base class for Crow Switches."""
-    _attr_has_entity_name = True  # NEW for HA 2025
+    _attr_has_entity_name = True 
 
-    def __init__(self, controller):
+    def __init__(self, controller, host):
         self._controller = controller
+        self._host = host # FIX
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -65,22 +64,21 @@ class CrowBaseSwitch(SwitchEntity):
             name="Crow Alarm System",
             manufacturer="Crow/AAP",
             model="IP Module",
-            configuration_url=f"http://{self._controller.ip}",
+            configuration_url=f"http://{self._host}", # FIX
         )
 
 
 class CrowOutput(CrowBaseSwitch):
-    """Representation of a Crow IP Module Output."""
-
-    def __init__(self, controller, output_number, output_name) -> None:
-        super().__init__(controller)
+    def __init__(self, controller, host, output_number, output_name) -> None:
+        super().__init__(controller, host)
         self._output_number = output_number
-        self._attr_name = output_name  # Just "Modem", not "Crow Modem"
+        self._attr_name = output_name
         self._attr_unique_id = f"crow_output_{output_number}"
         self._is_on = False
         
+        # Initial State Check with Safety
         if self._output_number in self._controller.output_state:
-             self._is_on = self._controller.output_state[self._output_number]["status"]["open"]
+             self._is_on = self._controller.output_state[self._output_number].get("status", {}).get("open", False)
 
     async def async_added_to_hass(self) -> None:
         self.async_on_remove(
@@ -104,17 +102,16 @@ class CrowOutput(CrowBaseSwitch):
     @callback
     def _update_callback(self, output) -> None:
         if output is None or int(output) == self._output_number:
-            new_state = self._controller.output_state[self._output_number]["status"]["open"]
-            if self._is_on != new_state:
-                self._is_on = new_state
-                self.async_write_ha_state()
+            if self._output_number in self._controller.output_state:
+                new_state = self._controller.output_state[self._output_number]["status"]["open"]
+                if self._is_on != new_state:
+                    self._is_on = new_state
+                    self.async_write_ha_state()
 
 
 class CrowRelay(CrowBaseSwitch):
-    """Representation of a Crow IP Module Relay."""
-
-    def __init__(self, controller, relay_number) -> None:
-        super().__init__(controller)
+    def __init__(self, controller, host, relay_number) -> None:
+        super().__init__(controller, host)
         self._relay_number = relay_number
         self._attr_name = f"Relay {relay_number}"
         self._attr_unique_id = f"crow_relay_{relay_number}"
