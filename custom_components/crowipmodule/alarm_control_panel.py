@@ -1,183 +1,187 @@
-"""Support for Crow IP 8/16 Module-based alarm control panel"""
+"""Support for Crow IP Module Alarm Control Panel."""
 import logging
 
-import voluptuous as vol
-
-import homeassistant.components.alarm_control_panel as alarm
-from homeassistant.components.alarm_control_panel.const import (
-    SUPPORT_ALARM_ARM_AWAY,
-    SUPPORT_ALARM_ARM_HOME,
-    SUPPORT_ALARM_TRIGGER,
+from homeassistant.components.alarm_control_panel import (
+    AlarmControlPanelEntity,
+    AlarmControlPanelEntityFeature,
+    AlarmControlPanelState,
+    CodeFormat,
 )
-
-from homeassistant.const import (
-    ATTR_ENTITY_ID,
-    STATE_ALARM_ARMED_AWAY,
-    STATE_ALARM_ARMED_HOME,
-    STATE_ALARM_DISARMED,
-    STATE_ALARM_PENDING,
-    STATE_ALARM_TRIGGERED,
-    STATE_UNKNOWN,
-)
-from homeassistant.core import callback
-import homeassistant.helpers.config_validation as cv
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from . import (
-    CONF_CODE,
-    CONF_AREANAME,
-    DATA_CRW,
-    AREA_SCHEMA,
-    SIGNAL_KEYPAD_UPDATE,
+from .const import (
+    DOMAIN,
     SIGNAL_AREA_UPDATE,
-    CrowIPModuleDevice,
+    SIGNAL_KEYPAD_UPDATE,
+    CONF_AREAS,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
-SERVICE_ALARM_KEYPRESS = "crow_alarm_keypress"
-ATTR_KEYPRESS = "keypress"
-ALARM_KEYPRESS_SCHEMA = vol.Schema(
-    {
-        vol.Required(ATTR_ENTITY_ID): cv.entity_ids,
-        vol.Required(ATTR_KEYPRESS): cv.string,
-    }
-)
 
-
-async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
-    """Perform the setup for Crow IP Module alarm panels."""
-    configured_areas = discovery_info["areas"]
-    # config['crowipmodule']['zones'][i]['name']
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up the Crow Alarm Panels from a config entry."""
+    controller = hass.data[DOMAIN][entry.entry_id]
+    options = entry.options
+    
+    # Konfigurierte Areas laden (oder Standardwerte nutzen)
+    configured_areas = options.get(CONF_AREAS, {})
+    
     devices = []
-    for part_num in configured_areas:
-        device_config_data = AREA_SCHEMA(configured_areas[part_num])
-        device = CrowIPModuleAlarm(
-            hass,
-            part_num,
-            device_config_data[CONF_AREANAME],
-            device_config_data[CONF_CODE],
-            hass.data[DATA_CRW].area_state[part_num],
-            hass.data[DATA_CRW],
-        )
-        devices.append(device)
+    
+    # Falls noch keine Areas konfiguriert sind (initialer Start), Standards setzen
+    if not configured_areas:
+        # Standard: Area 1 und 2
+        configured_areas = {
+            "1": {"name": "Area A", "code": "", "code_arm_required": True},
+            "2": {"name": "Area B", "code": "", "code_arm_required": True}
+        }
+
+    for area_num_str, area_data in configured_areas.items():
+        area_num = int(area_num_str)
+        # Sicherstellen, dass Area 1 oder 2 ist (Hardware Limitierung meistens)
+        if area_num in [1, 2]:
+            devices.append(CrowAlarmPanel(
+                controller, 
+                area_num, 
+                area_data.get("name", f"Area {area_num}"),
+                area_data.get("code", ""),
+                area_data.get("code_arm_required", True)
+            ))
 
     async_add_entities(devices)
 
-    @callback
-    def alarm_keypress_handler(service):
-        """Map services to methods on Alarm."""
-        entity_ids = service.data.get(ATTR_ENTITY_ID)
-        keypress = service.data.get(ATTR_KEYPRESS)
 
-        target_devices = [
-            device for device in devices if device.entity_id in entity_ids
-        ]
+class CrowAlarmPanel(AlarmControlPanelEntity):
+    """Representation of a Crow Alarm Area."""
+    
+    _attr_has_entity_name = True  # WICHTIG für HA 2025
+    _attr_name = None             # Name kommt vom Init (z.B. "Area A")
 
-        for device in target_devices:
-            device.async_alarm_keypress(keypress)
-
-    hass.services.async_register(
-        alarm.DOMAIN,
-        SERVICE_ALARM_KEYPRESS,
-        alarm_keypress_handler,
-        schema=ALARM_KEYPRESS_SCHEMA,
-    )
-
-    return True
-
-
-class CrowIPModuleAlarm(CrowIPModuleDevice, alarm.AlarmControlPanelEntity):
-    """Representation of an Crow IP Module-based alarm panel."""
-
-    def __init__(
-        self, hass, area_number, alarm_name, code, info, controller):
+    def __init__(self, controller, area_number, name, code, code_required) -> None:
         """Initialize the alarm panel."""
-        if area_number==1:
-            self._area_number = 'A'
-        else:
-            self._area_number = 'B'
+        self._controller = controller
+        self._area_number_int = area_number
+        self._area_number = "A" if area_number == 1 else "B"
+        
+        self._attr_name = name
+        self._attr_unique_id = f"crow_area_{area_number}"
+        
         self._code = code
+        self._code_required = code_required
+        
+        # Initialen State laden falls verfügbar
+        if area_number in controller.area_state:
+            self._info = controller.area_state[area_number]
+        else:
+            self._info = {"status": {}} # Fallback
 
-        _LOGGER.debug("Setting up alarm: %s", alarm_name)
-        super().__init__(alarm_name, info, controller)
+    @property
+    def device_info(self) -> DeviceInfo:
+        """Return device info to link all entities."""
+        return DeviceInfo(
+            identifiers={(DOMAIN, "crow_alarm_panel")},
+            name="Crow Alarm System",
+            manufacturer="Crow/AAP",
+            model="IP Module",
+            configuration_url=f"http://{self._controller.ip}",
+        )
 
-    async def async_added_to_hass(self):
+    async def async_added_to_hass(self) -> None:
         """Register callbacks."""
-        async_dispatcher_connect(self.hass, SIGNAL_KEYPAD_UPDATE, self._update_callback)
-        async_dispatcher_connect(
-            self.hass, SIGNAL_AREA_UPDATE, self._update_callback
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_AREA_UPDATE, self._update_callback)
+        )
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_KEYPAD_UPDATE, self._update_callback)
         )
 
     @callback
-    def _update_callback(self, area):
+    def _update_callback(self, area) -> None:
         """Update Home Assistant state, if needed."""
+        # Prüfen ob das Update für diese Area ist
         if area is None or area == self._area_number:
-            self.async_schedule_update_ha_state()
+            # Update info reference
+            self._info = self._controller.area_state[self._area_number_int]
+            self.async_write_ha_state()
 
-    """Required to show up Keypad on alarm panel"""
     @property
-    def code_format(self):
+    def code_format(self) -> CodeFormat | None:
         """Regex for code format or None if no code is required."""
-        if self._code != '':
+        # Wenn ein Code fest hinterlegt ist, benötigt die UI keinen Code
+        if self._code:
             return None
-        return alarm.FORMAT_NUMBER
+        return CodeFormat.NUMBER
 
     @property
-    def state(self):
+    def code_arm_required(self) -> bool:
+        """Whether the code is required for arm actions."""
+        return self._code_required
+
+    @property
+    def alarm_state(self) -> AlarmControlPanelState | None:
         """Return the state of the device."""
-        state = STATE_UNKNOWN
+        status = self._info.get("status", {})
 
-        if self._info["status"]["alarm"]:
-            state = STATE_ALARM_TRIGGERED
-        elif self._info["status"]["armed"]:
-            state = STATE_ALARM_ARMED_AWAY
-        elif self._info["status"]["stay_armed"]:
-            state = STATE_ALARM_ARMED_HOME
-        elif self._info["status"]["exit_delay"]:
-            state = STATE_ALARM_PENDING
-        elif self._info["status"]["stay_exit_delay"]:
-            state = STATE_ALARM_PENDING
-        elif self._info["status"]["disarmed"]:
-            state = STATE_ALARM_DISARMED
-        return state
+        if status.get("alarm"):
+            return AlarmControlPanelState.TRIGGERED
+        if status.get("armed"):
+            return AlarmControlPanelState.ARMED_AWAY
+        if status.get("stay_armed"):
+            return AlarmControlPanelState.ARMED_HOME
+        if status.get("exit_delay") or status.get("stay_exit_delay"):
+            return AlarmControlPanelState.PENDING
+        if status.get("disarmed"):
+            return AlarmControlPanelState.DISARMED
+            
+        return None
 
-    async def async_alarm_disarm(self, code=None):
+    @property
+    def supported_features(self) -> AlarmControlPanelEntityFeature:
+        """Return the list of supported features."""
+        return (
+            AlarmControlPanelEntityFeature.ARM_HOME
+            | AlarmControlPanelEntityFeature.ARM_AWAY
+            | AlarmControlPanelEntityFeature.TRIGGER
+        )
+
+    async def async_alarm_disarm(self, code: str | None = None) -> None:
         """Send disarm command."""
-        if code:
-            self.hass.data[DATA_CRW].disarm(str(code))
-        else:
-            self.hass.data[DATA_CRW].disarm(str(self._code))
+        code_to_use = str(code) if code else str(self._code)
+        self._controller.disarm(code_to_use)
 
-    async def async_alarm_arm_home(self, code=None):
+    async def async_alarm_arm_home(self, code: str | None = None) -> None:
         """Send arm home command."""
-        self.hass.data[DATA_CRW].arm_stay()
-        self.hass.data[DATA_CRW].send_keypress(str(self._code))
-
-    async def async_alarm_arm_away(self, code=None):
-        """Send arm away command."""
-        self.hass.data[DATA_CRW].arm_away()
+        self._controller.arm_stay()
+        # Code wird bei Crow oft nach dem Befehl gesendet
+        code_to_use = str(self._code)
         if code:
-            self.hass.data[DATA_CRW].send_keypress(str(code))
-        else:
-            self.hass.data[DATA_CRW].send_keypress(str(self._code))
+             code_to_use = str(code)
+        
+        if code_to_use:
+            self._controller.send_keypress(code_to_use)
 
-    async def async_alarm_trigger(self, code=None):
+    async def async_alarm_arm_away(self, code: str | None = None) -> None:
+        """Send arm away command."""
+        self._controller.arm_away()
+        code_to_use = str(code) if code else str(self._code)
+        
+        if code_to_use:
+            self._controller.send_keypress(code_to_use)
+
+    async def async_alarm_trigger(self, code: str | None = None) -> None:
         """Alarm trigger command. Will be used to trigger a panic alarm."""
-        self.hass.data[DATA_CRW].panic_alarm('')
+        self._controller.panic_alarm("")
 
     @property
     def extra_state_attributes(self):
         """Return the state attributes."""
-        return self._info["status"]
-
-    @callback
-    def async_alarm_keypress(self, keypress=None):
-        """Send custom keypress."""
-        if keypress:
-            self.hass.data[DATA_CRW].send_keypress(str(keypress))
-
-    @property
-    def supported_features(self) -> int:
-        """Return the list of supported features."""
-        return SUPPORT_ALARM_ARM_HOME | SUPPORT_ALARM_ARM_AWAY | SUPPORT_ALARM_TRIGGER
+        return self._info.get("status", {})
