@@ -1,14 +1,70 @@
 {
     "config": {
         "step": {
-            "user": {
-                "title": "Connect Crow Alarm",
-                "description": "Please enter the IP address and port of the IP module.",
+            "areas": {
+                "title": "Step 1/4: Areas",
+                "description": "Configure your alarm partitions.",
+                "data": {
+                    "area_1_name": "Name Area 1 (A)",
+                    "area_1_code": "Code Area 1 (Optional)",
+                    "area_2_name": "Name Area 2 (B)",
+                    "area_2_code": "Code Area 2 (Optional)"
+                }
+            },
+            "outputs": {
+                "title": "Step 2/4: Switches (Outputs)",
+                "description": "Configure the two switchable outputs.",
+                "data": {
+                    "output_3_name": "Name Output 3",
+                    "output_4_name": "Name Output 4"
+                }
+            },
+            "zones": {
+                "title": "Step 3/4: Zones (Sensors)",
+                "description": "Name your sensors. Leave unused ones empty.",
+                "data": {
+                    "zone_1_name": "Name Zone 1",
+                    "zone_1_type": "Type Zone 1",
+                    "zone_2_name": "Name Zone 2",
+                    "zone_2_type": "Type Zone 2",
+                    "zone_3_name": "Name Zone 3",
+                    "zone_3_type": "Type Zone 3",
+                    "zone_4_name": "Name Zone 4",
+                    "zone_4_type": "Type Zone 4",
+                    "zone_5_name": "Name Zone 5",
+                    "zone_5_type": "Type Zone 5",
+                    "zone_6_name": "Name Zone 6",
+                    "zone_6_type": "Type Zone 6",
+                    "zone_7_name": "Name Zone 7",
+                    "zone_7_type": "Type Zone 7",
+                    "zone_8_name": "Name Zone 8",
+                    "zone_8_type": "Type Zone 8",
+                    "zone_9_name": "Name Zone 9",
+                    "zone_9_type": "Type Zone 9",
+                    "zone_10_name": "Name Zone 10",
+                    "zone_10_type": "Type Zone 10",
+                    "zone_11_name": "Name Zone 11",
+                    "zone_11_type": "Type Zone 11",
+                    "zone_12_name": "Name Zone 12",
+                    "zone_12_type": "Type Zone 12",
+                    "zone_13_name": "Name Zone 13",
+                    "zone_13_type": "Type Zone 13",
+                    "zone_14_name": "Name Zone 14",
+                    "zone_14_type": "Type Zone 14",
+                    "zone_15_name": "Name Zone 15",
+                    "zone_15_type": "Type Zone 15",
+                    "zone_16_name": "Name Zone 16",
+                    "zone_16_type": "Type Zone 16"
+                }
+            },
+            "connection": {
+                "title": "Step 4/4: Connection",
+                "description": "Finally, enter the IP address.",
                 "data": {
                     "host": "IP Address",
-                    "port": "Port (Default 5002)",
-                    "keepalive_interval": "Keepalive (Seconds)",
-                    "timeout": "Timeout (Seconds)"
+                    "port": "Port",
+                    "keepalive_interval": "Keepalive (sec)",
+                    "timeout": "Timeout (sec)"
                 }
             }
         },
@@ -24,48 +80,54 @@
             "areas": {
                 "title": "Configure Areas",
                 "data": {
-                    "area_1_name": "Area A Name",
-                    "area_1_code": "Area A Code (Optional)",
-                    "area_2_name": "Area B Name",
-                    "area_2_code": "Area B Code (Optional)"
+                    "area_1_name": "Name Area 1 (A)",
+                    "area_1_code": "Code Area 1 (Optional)",
+                    "area_2_name": "Name Area 2 (B)",
+                    "area_2_code": "Code Area 2 (Optional)"
+                }
+            },
+            "outputs": {
+                "title": "Configure Switches",
+                "data": {
+                    "output_3_name": "Name Output 3",
+                    "output_4_name": "Name Output 4"
                 }
             },
             "zones": {
                 "title": "Configure Zones",
-                "description": "Name your zones. Empty names will be ignored.",
                 "data": {
-                    "zone_1_name": "Zone 1 Name",
-                    "zone_1_type": "Zone 1 Type",
-                    "zone_2_name": "Zone 2 Name",
-                    "zone_2_type": "Zone 2 Type",
-                    "zone_3_name": "Zone 3 Name",
-                    "zone_3_type": "Zone 3 Type",
-                    "zone_4_name": "Zone 4 Name",
-                    "zone_4_type": "Zone 4 Type",
-                    "zone_5_name": "Zone 5 Name",
-                    "zone_5_type": "Zone 5 Type",
-                    "zone_6_name": "Zone 6 Name",
-                    "zone_6_type": "Zone 6 Type",
-                    "zone_7_name": "Zone 7 Name",
-                    "zone_7_type": "Zone 7 Type",
-                    "zone_8_name": "Zone 8 Name",
-                    "zone_8_type": "Zone 8 Type",
-                    "zone_9_name": "Zone 9 Name",
-                    "zone_9_type": "Zone 9 Type",
-                    "zone_10_name": "Zone 10 Name",
-                    "zone_10_type": "Zone 10 Type",
-                    "zone_11_name": "Zone 11 Name",
-                    "zone_11_type": "Zone 11 Type",
-                    "zone_12_name": "Zone 12 Name",
-                    "zone_12_type": "Zone 12 Type",
-                    "zone_13_name": "Zone 13 Name",
-                    "zone_13_type": "Zone 13 Type",
-                    "zone_14_name": "Zone 14 Name",
-                    "zone_14_type": "Zone 14 Type",
-                    "zone_15_name": "Zone 15 Name",
-                    "zone_15_type": "Zone 15 Type",
-                    "zone_16_name": "Zone 16 Name",
-                    "zone_16_type": "Zone 16 Type"
+                    "zone_1_name": "Name Zone 1",
+                    "zone_1_type": "Type Zone 1",
+                    "zone_2_name": "Name Zone 2",
+                    "zone_2_type": "Type Zone 2",
+                    "zone_3_name": "Name Zone 3",
+                    "zone_3_type": "Type Zone 3",
+                    "zone_4_name": "Name Zone 4",
+                    "zone_4_type": "Type Zone 4",
+                    "zone_5_name": "Name Zone 5",
+                    "zone_5_type": "Type Zone 5",
+                    "zone_6_name": "Name Zone 6",
+                    "zone_6_type": "Type Zone 6",
+                    "zone_7_name": "Name Zone 7",
+                    "zone_7_type": "Type Zone 7",
+                    "zone_8_name": "Name Zone 8",
+                    "zone_8_type": "Type Zone 8",
+                    "zone_9_name": "Name Zone 9",
+                    "zone_9_type": "Type Zone 9",
+                    "zone_10_name": "Name Zone 10",
+                    "zone_10_type": "Type Zone 10",
+                    "zone_11_name": "Name Zone 11",
+                    "zone_11_type": "Type Zone 11",
+                    "zone_12_name": "Name Zone 12",
+                    "zone_12_type": "Type Zone 12",
+                    "zone_13_name": "Name Zone 13",
+                    "zone_13_type": "Type Zone 13",
+                    "zone_14_name": "Name Zone 14",
+                    "zone_14_type": "Type Zone 14",
+                    "zone_15_name": "Name Zone 15",
+                    "zone_15_type": "Type Zone 15",
+                    "zone_16_name": "Name Zone 16",
+                    "zone_16_type": "Type Zone 16"
                 }
             }
         }
