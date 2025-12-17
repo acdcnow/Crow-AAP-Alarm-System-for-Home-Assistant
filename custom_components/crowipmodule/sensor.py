@@ -1,18 +1,18 @@
-"""Support for Crow IP Module switches (Outputs & Relays)."""
+"""Support for Crow IP Module text sensors."""
 import logging
-from typing import Any
 
-from homeassistant.components.switch import SwitchEntity
+from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.const import CONF_HOST, EntityCategory # Für Diagnostik, falls wir den Text-Sensor auch so wollen
 
 from .const import (
     DOMAIN,
-    SIGNAL_OUTPUT_UPDATE,
-    CONF_OUTPUTS,
+    DATA_CRW,
+    SIGNAL_SYSTEM_UPDATE,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -23,40 +23,25 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up the Crow IP Module switches."""
+    """Set up the Crow IP Module sensor."""
     controller = hass.data[DOMAIN][entry.entry_id]
-    options = entry.options
+    host = entry.data[CONF_HOST]
     
-    entities = []
+    async_add_entities([CrowSystemSensor(controller, host)], True)
 
-    # Configured Outputs
-    configured_outputs = options.get(CONF_OUTPUTS, {})
+
+class CrowSystemSensor(SensorEntity):
+    """Representation of the Crow Alarm System Status Text."""
     
-    # Fallback für Outputs 3 & 4 falls nicht im ConfigFlow (da Nutzer danach fragte)
-    if not configured_outputs:
-         configured_outputs = {
-             "3": {"name": "Modem"},
-             "4": {"name": "Gatewayrouter"}
-         }
+    _attr_has_entity_name = True
 
-    for output_num_str, output_data in configured_outputs.items():
-        output_num = int(output_num_str)
-        name = output_data.get("name", f"Output {output_num}")
-        entities.append(CrowOutput(controller, output_num, name))
-
-    # Relays
-    for relay_num in range(1, 3):
-        entities.append(CrowRelay(controller, relay_num))
-
-    async_add_entities(entities)
-
-
-class CrowBaseSwitch(SwitchEntity):
-    """Base class for Crow Switches."""
-    _attr_has_entity_name = True  # NEW for HA 2025
-
-    def __init__(self, controller):
+    def __init__(self, controller, host) -> None:
         self._controller = controller
+        self._host = host
+        self._attr_name = "System Status"
+        self._attr_unique_id = "crow_system_status_text"
+        self._attr_icon = "mdi:shield-home"
+        self._info = controller.system_state
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -65,67 +50,41 @@ class CrowBaseSwitch(SwitchEntity):
             name="Crow Alarm System",
             manufacturer="Crow/AAP",
             model="IP Module",
-            configuration_url=f"http://{self._controller.ip}",
+            configuration_url=f"http://{self._host}",
         )
-
-
-class CrowOutput(CrowBaseSwitch):
-    """Representation of a Crow IP Module Output."""
-
-    def __init__(self, controller, output_number, output_name) -> None:
-        super().__init__(controller)
-        self._output_number = output_number
-        self._attr_name = output_name  # Just "Modem", not "Crow Modem"
-        self._attr_unique_id = f"crow_output_{output_number}"
-        self._is_on = False
-        
-        if self._output_number in self._controller.output_state:
-             self._is_on = self._controller.output_state[self._output_number]["status"]["open"]
 
     async def async_added_to_hass(self) -> None:
+        """Register callbacks."""
         self.async_on_remove(
-            async_dispatcher_connect(self.hass, SIGNAL_OUTPUT_UPDATE, self._update_callback)
+            async_dispatcher_connect(self.hass, SIGNAL_SYSTEM_UPDATE, self._update_callback)
         )
 
     @property
-    def is_on(self) -> bool:
-        return self._is_on
+    def native_value(self) -> str:
+        """Return a text representation of the state."""
+        status = self._info.get("status", {})
+        
+        if status.get("alarm"):
+            return "ALARM"
+        if status.get("armed"):
+            return "Armed Away"
+        if status.get("stay_armed"):
+            return "Armed Stay"
+        if status.get("exit_delay"):
+            return "Exit Delay"
+        if status.get("stay_exit_delay"):
+            return "Stay Exit Delay"
+        if not status.get("mains", True):
+            return "Power Failure"
+        if not status.get("battery", True):
+            return "Low Battery"
+            
+        return "Ready"
 
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        self._controller.command_output(str(self._output_number))
-        self._is_on = True
-        self.async_write_ha_state()
-
-    async def async_turn_off(self, **kwargs: Any) -> None:
-        self._controller.command_output(str(self._output_number))
-        self._is_on = False
-        self.async_write_ha_state()
+    # extra_state_attributes wurde ENTFERNT.
 
     @callback
-    def _update_callback(self, output) -> None:
-        if output is None or int(output) == self._output_number:
-            new_state = self._controller.output_state[self._output_number]["status"]["open"]
-            if self._is_on != new_state:
-                self._is_on = new_state
-                self.async_write_ha_state()
-
-
-class CrowRelay(CrowBaseSwitch):
-    """Representation of a Crow IP Module Relay."""
-
-    def __init__(self, controller, relay_number) -> None:
-        super().__init__(controller)
-        self._relay_number = relay_number
-        self._attr_name = f"Relay {relay_number}"
-        self._attr_unique_id = f"crow_relay_{relay_number}"
-        self._attr_icon = "mdi:electric-switch"
-
-    @property
-    def is_on(self) -> bool:
-        return False
-
-    async def async_turn_on(self, **kwargs: Any) -> None:
-        self._controller.relay_on(self._relay_number)
-        
-    async def async_turn_off(self, **kwargs: Any) -> None:
-        pass
+    def _update_callback(self, system) -> None:
+        """Update the sensor state in HA."""
+        self._info = self._controller.system_state
+        self.async_write_ha_state()
