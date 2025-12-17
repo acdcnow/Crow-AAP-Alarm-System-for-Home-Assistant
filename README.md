@@ -1,142 +1,123 @@
-# Home Assistant Crow IP Module Custom Component
+Here is a comprehensive `README.md` file for your GitHub repository. It documents the new Config Flow, the migration process, and how to use the integration.
 
-This is a custom component for Crow Runner / Arrowhead AAP 8/16 Home Alarm System IP Module Integration to Home Assistant.
+---
 
-https://community.home-assistant.io/t/custom-component-crow-runner-arrowhead-aap-8-16-alarm-ip-module/130588?u=febalci
+# Crow/AAP Alarm IP Module for Home Assistant
 
-The firmware version required for this component is **Ver 2.10.3628 2017 Oct 20 09:48:43** and it is specifically written for telnet connection to home automation software. You will need to contact AAP from their email address in that web page and request this firmware.
+This is a custom component for Home Assistant to integrate **Crow Runner** and **AAP (Arrowhead Alarm Products)** alarm systems equipped with the **IP Module** (IA-IP-MODULE).
 
-Home Assistant Crow IP Module
-=============================
+It communicates directly with the IP module over the local network to provide real-time status updates and control.
 
-For Crow Runner 8/16 with IP Module and special Firmware running via SSH Running in Home Assistant Version 2023.1.1 and higher (Python 3.10)
-Ensure that your Crow Runner IP Module is running the correct firmware. The standard firmware from Crow or AAP will NOT work with this version!!
+## ✨ Features
+
+* **Config Flow:** Fully configurable via the Home Assistant UI (no YAML required).
+* **Alarm Control Panel:** Arm (Away/Stay), Disarm, and Trigger panic alarms for up to 2 Areas (Partitions).
+* **Zones:** Binary sensors for up to 16 zones (Motion, Door, Window, Smoke, etc.).
+* **Outputs:** Control up to 2 switchable outputs (e.g., Garage Door, Gates).
+* **System Status:** Diagnostic sensors for Mains Power, Battery, Tamper, Phone Line, and Dialler status.
+* **Device Registry:** All entities are grouped under a single "Crow Alarm System" device.
+
+## 📋 Requirements
+
+* **Home Assistant:** Version 2025.12.3 or newer.
+* **Hardware:** Crow Runner or AAP control panel with an installed IP Module.
+* **Network:** The IP Module must be connected to the same network as Home Assistant.
+
+## 🚀 Installation
+
+### Option 1: HACS (Recommended)
+
+1. Open HACS in Home Assistant.
+2. Go to "Integrations" > Top right menu > "Custom repositories".
+3. Add the URL of this repository.
+4. Category: **Integration**.
+5. Click **Install**.
+6. Restart Home Assistant.
+
+### Option 2: Manual Installation
+
+1. Download this repository.
+2. Copy the `custom_components/crowipmodule` folder into your Home Assistant's `config/custom_components/` directory.
+3. Restart Home Assistant.
+
+## ⚙️ Configuration
+
+This integration uses a 4-step configuration wizard.
+
+1. Go to **Settings** > **Devices & Services**.
+2. Click **+ Add Integration**.
+3. Search for **Crow/AAP Alarm IP Module**.
+
+### The Setup Wizard
+
+* **Step 1: Areas**
+* Name your partitions (e.g., "House", "Garage").
+* (Optional) Enter a default code if you want to arm/disarm without typing it every time.
 
 
-In order to get that module running you must ensure that the preconditions are fulfilled:
-=========================================================================================
-
-- running a Alarm System as Runner 8/16 Connected to that an IP Module
-- running Firmware Ver 2.10.3628 2017 Oct 20 09:48:43
-- not having ANY SSH connection active to that IP Module (Firmware support just a single connection ) to SSH standardport 5002.
-- WebUi can be reached with IP adress that is given in the first Bootup via DHCP Server.
-- set the IP adress to static in order to keep a fixed IP adress at any time.
-- running home assistant higher then release version 2023.1.1 (lower once are not support)
+* **Step 2: Switches (Outputs)**
+* Name your controllable outputs (Output 3 & 4), e.g., "Garage Door".
 
 
-
-An setup example is given below:
-================================
-In order to get that module running you must ensure that the preconditions are fulfilled.
-
-- Base system is a Alarm System as Crow Runner 8/16
-- Connected to that bases system is an IP Module running Firmware Ver 2.10.3628 2017 Oct 20 09:48:43
-- Not connected ANY SSH connection (Firmware support just a single connection ) to SSH standard port is 5002
-- WebUi can be reached with IP adress that is given in the first Bootup via DHCP Server
-   Password should be 12345678 if not changed by your installer company. 
+* **Step 3: Zones**
+* Name your 16 zones.
+* Select the type for each zone (Motion, Door, Window, Smoke, etc.) from the dropdown.
+* *Tip: Leave unused zones empty.*
 
 
-Config Code:
-============
+* **Step 4: Connection**
+* **IP Address:** The local IP of your alarm module.
+* **Port:** Usually `5002`.
+
+
+
+### Migration from YAML
+
+If you previously used the YAML configuration, the integration will automatically import your settings (Zones, Areas, IP) upon the first restart. Once the device appears in the "Integrations" dashboard, you can safely remove the `crowipmodule:` section from your `configuration.yaml`.
+
+## 🛡️ Usage
+
+### Alarm Panel
+
+* **Arming:** Click "Arm Away" or "Arm Home". If a code is required and not saved in the config, the keypad will appear.
+* **Disarming:** Enter your code on the keypad and click "Disarm".
+* **Keypad:** The keypad is always available to send manual commands or codes.
+
+### Diagnostic Sensors
+
+System health information is located on the Device page under the **Diagnostic** category. These sensors indicate problems (e.g., "Low Battery" or "Power Failure").
+
+* `Mains Power` (On = Power OK)
+* `System Battery` (On = Battery Low)
+* `System Tamper` (On = Tamper Detected)
+
+### Outputs
+
+Outputs 1 & 2 are usually hardware relays on the board. Outputs 3 & 4 are the controllable switches configured during setup. They appear as standard Switch entities in Home Assistant.
+
+## 🔧 Troubleshooting
+
+**Enable Debug Logging:**
+If you encounter issues, enable debug logging to see the raw communication with the module.
+
+Add this to your `configuration.yaml`:
+
+```yaml
+logger:
+  default: info
+  logs:
+    custom_components.crowipmodule: debug
+    pycrowipmodule: debug
 
 ```
-crowipmodule:
-  host: xxx.xxx.xxx.xxx ( any IP adress it is recommanted to set a static IP adress)
-  port: 5002
-  keepalive_interval: 60
-  timeout: 20
-  areas:
-    1:
-      name: 'Home'  (Name it like you want)
-      code: '1234'  (Keypad Arm and Disarm Code (User code))
-    2:
-      name: 'None' (Name it like you want)
-      code: '1234'  (Keypad Arm and Disarm Code (User code))
-  outputs:
-    3:
-      name: 'Main Router' (Name it like you want)
-    4:
-      name: 'USV Restart' (Name it like you want)
-  zones:
-    1: --> depends on your installation how many zones you have and the type of your base system and 8 or 16 zone system
-      name: 'Entrance' (Name it like you want)
-      type: 'motion' (support type are motion, door, window)
-    2:
-      name: 'Terrace'
-      type: 'door'
-    3:
-      name: 'Kitchen Window'
-      type: 'window'
-    4:
-      name: 'Kitchen Door'
-      type: 'door'
-    5:
-      name: 'Kitchen Motion'
-      type: 'motion'
-    6:
-      name: 'Bedroom Motion'
-      type: 'motion'
-    7:
-      name: 'Child Room'
-      type: 'door'
-    8:
-      name: 'Child Window Wireless'
-      type: 'window'
-    9:
-      name: 'Child PIR'
-      type: 'motion'
-    10:
-      name: 'Den Motion'
-      type: 'motion'
-    11:
-      name: 'Guest Motion'
-      type: 'motion'
-    12:
-      name: 'Hall Motion'
-      type: 'motion'
-    13:
-      name: 'Hobby Motion'
-      type: 'motion'
-    14:
-      name: 'Bedroom Door'
-      type: 'door'
-    15:
-      name: 'Guest Door'
-      type: 'door'
-    16:
-      name: 'Exit Wireless'
-      type: 'door'
-```
 
-Changelog:
-==========
-V2023.08:
-- requirements V0.28 to adjust the need on python 3.11.4 and fix the timeout error on code adjustments
+**Common Errors:**
 
-v2023.01:
-- requirements update to pycrowipmodule==0.31
+* `Bootstrap stage 2 timeout`: The integration couldn't connect to the IP during startup. It will keep trying in the background. Check your IP address.
+* `500 Internal Server Error`: Ensure you cleared your browser cache (CTRL+F5) after updating the integration.
 
-v2022.10:
-- requirements V0.28 to adjust the need on python 3.10
+## Credits
 
-v2021.12.0:
-- state attribute update for 2021.12.0 release
-- When HA restarts; update all entities just after the connection is established.
-- Check network disconnects real-time.
-- ESA waits until STATUS request
-- Added RL1 and RL2 Relays
-- Corrected HA 110 breaking changes
-- SwitchDevice, BinarySensorDevice and AlarmControlPanel is deprecated,
-- modify to extend SwitchEntity, BinarySensorEntity and AlarmControlPanelEntity
-- Add the respository to HACS
-- Corrected HA 103 breaking changes made on alarm_control_panel.
-- Outputs controlling and status corrected.
-- Removed sensor.area_a_keypad and added sensor.crow_alarm_system; this new sensor has all system related attributes only.
-- Handle trigger based disconnection issue.
-- Corrected some issues.
-- Corrected deepcopy dict, which results area_keypad device attributes to be the same as alarm_control_panel.
-- Corrected alarm trigger updates of both area_keypad and alarm_control_panel.
-- System binary sensors are converted to alarm control panel device attributes.
-- If 'code' configuration is missing in configuration.yaml, then keypad is on in Alarm Panel.
-- 'code' configuration is moved to 'areas' section for area specific code.
--- > Corrected some errors.
+Based on the `pycrowipmodule` library.
+Original custom component author: @febalci.
+Refactored for Home Assistant 2025+ with Config Flow support.
