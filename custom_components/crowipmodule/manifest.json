@@ -1,12 +1,12 @@
 {
   "domain": "crowipmodule",
   "name": "Crow/AAP Alarm IP Module",
-  "documentation": "https://github.com/febalci/ha_pycrowipmodule",
+  "documentation": "https://github.com/acdcnow/ha_pycrowipmodule",
   "requirements": [
     "pycrowipmodule>=0.32"
   ],
   "codeowners": [
-    "@febalci"
+    "@acdcnow"
   ],
   "config_flow": true,
   "iot_class": "local_push",
