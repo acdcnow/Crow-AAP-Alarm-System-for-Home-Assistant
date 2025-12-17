@@ -1,75 +1,116 @@
-"""Support for Crow Alarm IP 8/16 Module."""
-import datetime
+"""Support for Crow Alarm IP Module Binary Sensors."""
 import logging
-
-from homeassistant.components.binary_sensor import BinarySensorEntity
-from homeassistant.core import callback
+from homeassistant.components.binary_sensor import (
+    BinarySensorEntity,
+    BinarySensorDeviceClass,
+)
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.util import dt as dt_util
+from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.core import callback
 
-from . import (
-    CONF_ZONENAME,
-    CONF_ZONETYPE,
-    DATA_CRW,
-    SIGNAL_ZONE_UPDATE,
-    ZONE_SCHEMA,
-    CrowIPModuleDevice,
+from .const import (
+    DOMAIN, SIGNAL_ZONE_UPDATE, SIGNAL_SYSTEM_UPDATE,
+    CONF_ZONES, CONF_OBJ_MAINS, CONF_OBJ_BATTERY, 
+    CONF_OBJ_TAMPER, CONF_OBJ_LINE, CONF_OBJ_DIALLER, CONF_OBJ_ZONE_BATTERY
 )
 
 _LOGGER = logging.getLogger(__name__)
 
-async def async_setup_platform(hass, config, async_add_entities, discovery_info=None):
-    """Set up the Crow binary sensor devices."""
-    configured_zones = discovery_info["zones"]
+async def async_setup_entry(hass, entry, async_add_entities):
+    """Set up the Crow binary sensors."""
+    controller = hass.data[DOMAIN][entry.entry_id]
+    options = entry.options
+    
+    entities = []
 
-    devices = []
-    for zone_num in configured_zones:
-        device_config_data = ZONE_SCHEMA(configured_zones[zone_num])
-        device = CrowIPModuleBinarySensor(
-            hass,
-            zone_num,
-            device_config_data[CONF_ZONENAME],
-            device_config_data[CONF_ZONETYPE],
-            hass.data[DATA_CRW].zone_state[zone_num],
-            hass.data[DATA_CRW],
+    configured_zones = options.get(CONF_ZONES, {})
+    for zone_num_str, zone_info in configured_zones.items():
+        zone_num = int(zone_num_str)
+        entities.append(CrowZoneSensor(
+            controller, zone_num, zone_info["name"], zone_info["type"]
+        ))
+
+    system_sensors = [
+        (CONF_OBJ_MAINS, "Mains Power", BinarySensorDeviceClass.POWER),
+        (CONF_OBJ_BATTERY, "System Battery", BinarySensorDeviceClass.BATTERY),
+        (CONF_OBJ_TAMPER, "System Tamper", BinarySensorDeviceClass.TAMPER),
+        (CONF_OBJ_LINE, "Phone Line", BinarySensorDeviceClass.CONNECTIVITY),
+        (CONF_OBJ_DIALLER, "Dialler", BinarySensorDeviceClass.CONNECTIVITY),
+        (CONF_OBJ_ZONE_BATTERY, "Zone Battery", BinarySensorDeviceClass.BATTERY),
+    ]
+
+    for key, name, dev_class in system_sensors:
+        entities.append(CrowSystemStatusSensor(controller, key, name, dev_class))
+
+    async_add_entities(entities)
+
+
+class CrowBaseEntity(BinarySensorEntity):
+    _attr_has_entity_name = True
+
+    def __init__(self, controller):
+        self._controller = controller
+    
+    @property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={(DOMAIN, "crow_alarm_panel")},
+            name="Crow Alarm System",
+            manufacturer="Crow/AAP",
+            model="IP Module",
+            configuration_url=f"http://{self._controller.ip}",
         )
-        devices.append(device)
 
-    async_add_entities(devices)
-
-
-class CrowIPModuleBinarySensor(CrowIPModuleDevice, BinarySensorEntity):
-    """Representation of an Crow IP Module binary sensor."""
-
-    def __init__(self, hass, zone_number, zone_name, zone_type, info, controller):
-        """Initialize the binary_sensor."""
-        self._zone_type = zone_type
+class CrowZoneSensor(CrowBaseEntity):
+    def __init__(self, controller, zone_number, zone_name, zone_type):
+        super().__init__(controller)
         self._zone_number = zone_number
-
-        _LOGGER.debug("Setting up zone: %s", zone_name)
-        super().__init__(zone_name, info, controller)
+        self._attr_name = zone_name
+        self._attr_device_class = zone_type
+        self._attr_unique_id = f"crow_zone_{zone_number}"
+        self._info = controller.zone_state[zone_number]
 
     async def async_added_to_hass(self):
-        """Register callbacks."""
-        async_dispatcher_connect(self.hass, SIGNAL_ZONE_UPDATE, self._update_callback)
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_ZONE_UPDATE, self._update_callback)
+        )
 
     @property
     def is_on(self):
-        """Return true if sensor is on."""
         return self._info["status"]["open"]
 
     @property
-    def device_class(self):
-        """Return the class of this sensor, from DEVICE_CLASSES."""
-        return self._zone_type
-
-    @property
     def extra_state_attributes(self):
-        """Return the state attributes."""
         return self._info["status"]
 
     @callback
     def _update_callback(self, zone):
-        """Update the zone's state, if needed."""
         if zone is None or int(zone) == self._zone_number:
-            self.async_schedule_update_ha_state()
+            self.async_write_ha_state()
+
+class CrowSystemStatusSensor(CrowBaseEntity):
+    def __init__(self, controller, key, name, device_class):
+        super().__init__(controller)
+        self._key = key
+        self._attr_name = name
+        self._attr_device_class = device_class
+        self._attr_unique_id = f"crow_sys_{key}"
+        self._attr_entity_category = "diagnostic" 
+
+    async def async_added_to_hass(self):
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_SYSTEM_UPDATE, self._update_callback)
+        )
+
+    @property
+    def is_on(self):
+        val = self._controller.system_state["status"].get(self._key)
+        if self._attr_device_class == BinarySensorDeviceClass.POWER:
+            return val
+        if self._attr_device_class == BinarySensorDeviceClass.BATTERY:
+            return not val # Invert logic often needed for batteries (On = Low)
+        return val
+
+    @callback
+    def _update_callback(self, _):
+        self.async_write_ha_state()
