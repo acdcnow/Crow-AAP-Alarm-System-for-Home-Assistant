@@ -1,0 +1,76 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configurer Crow IP Module",
+        "description": "Veuillez d'abord configurer vos zones (Areas)."
+      },
+      "areas": {
+        "title": "Configuration des zones (Areas)",
+        "data": {
+          "area_1_name": "Nom pour la zone 1",
+          "area_1_code": "Code par défaut pour la zone 1",
+          "area_2_name": "Nom pour la zone 2",
+          "area_2_code": "Code par défaut pour la zone 2"
+        }
+      },
+      "outputs": {
+        "title": "Configuration des relais",
+        "data": {
+          "output_1_name": "Nom pour le relais 1",
+          "output_2_name": "Nom pour le relais 2"
+        }
+      },
+      "zones_count": {
+        "title": "Nombre de détecteurs",
+        "data": {
+          "zone_count": "Combien de détecteurs (zones) avez-vous ?"
+        }
+      },
+      "zones": {
+        "title": "Configuration des détecteurs",
+        "description": "Configurez le nom et le type pour chaque détecteur.",
+        "data": {
+          "zone_1_name": "Nom pour le détecteur 1", "zone_1_type": "Type pour le détecteur 1",
+          "zone_2_name": "Nom pour le détecteur 2", "zone_2_type": "Type pour le détecteur 2",
+          "zone_3_name": "Nom pour le détecteur 3", "zone_3_type": "Type pour le détecteur 3",
+          "zone_4_name": "Nom pour le détecteur 4", "zone_4_type": "Type pour le détecteur 4",
+          "zone_5_name": "Nom pour le détecteur 5", "zone_5_type": "Type pour le détecteur 5",
+          "zone_6_name": "Nom pour le détecteur 6", "zone_6_type": "Type pour le détecteur 6",
+          "zone_7_name": "Nom pour le détecteur 7", "zone_7_type": "Type pour le détecteur 7",
+          "zone_8_name": "Nom pour le détecteur 8", "zone_8_type": "Type pour le détecteur 8",
+          "zone_9_name": "Nom pour le détecteur 9", "zone_9_type": "Type pour le détecteur 9",
+          "zone_10_name": "Nom pour le détecteur 10", "zone_10_type": "Type pour le détecteur 10",
+          "zone_11_name": "Nom pour le détecteur 11", "zone_11_type": "Type pour le détecteur 11",
+          "zone_12_name": "Nom pour le détecteur 12", "zone_12_type": "Type pour le détecteur 12",
+          "zone_13_name": "Nom pour le détecteur 13", "zone_13_type": "Type pour le détecteur 13",
+          "zone_14_name": "Nom pour le détecteur 14", "zone_14_type": "Type pour le détecteur 14",
+          "zone_15_name": "Nom pour le détecteur 15", "zone_15_type": "Type pour le détecteur 15",
+          "zone_16_name": "Nom pour le détecteur 16", "zone_16_type": "Type pour le détecteur 16"
+        }
+      },
+      "connection": {
+        "title": "Paramètres de connexion",
+        "data": {
+          "host": "Adresse IP",
+          "port": "Port",
+          "keepalive_interval": "Intervalle Keep Alive (sec)",
+          "timeout": "Délai d'attente (sec)"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "areas": {
+        "title": "Modifier les zones (Areas)"
+      },
+      "outputs": {
+        "title": "Modifier les relais"
+      },
+      "zones": {
+        "title": "Modifier les détecteurs"
+      }
+    }
+  }
+}
