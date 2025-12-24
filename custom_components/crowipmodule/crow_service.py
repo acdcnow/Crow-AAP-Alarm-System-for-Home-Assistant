@@ -21,20 +21,15 @@ class CrowIPAlarmPanel:
         self._running = False
         self._connect_task = None
         
-        # --- STATE INITIALIZATION ---
         self.zone_state = {}     
         self.area_state = {
             1: {'status': {'armed': False, 'stay_armed': False, 'alarm': False, 'disarmed': True, 'exit_delay': False}},
             2: {'status': {'armed': False, 'stay_armed': False, 'alarm': False, 'disarmed': True, 'exit_delay': False}}
         }
         self.output_state = {}   
-        
-        # System State defaults to OK
         self.system_state = {    
             "status": {
-                "mains": True,     
-                "battery": True,   
-                "tamper": False,   
+                "mains": True, "battery": True, "tamper": False
             }
         }
 
@@ -61,11 +56,8 @@ class CrowIPAlarmPanel:
                 _LOGGER.info("Connected to Crow IP Module.")
                 if self.callback_connected: self.callback_connected(True)
 
-                # Send initial status request
                 await self.send_command("STATUS")
                 await asyncio.sleep(0.5)
-                # Some panels respond better to entering programming mode exit to dump status
-                # but STATUS is standard.
 
                 while self._running:
                     try:
@@ -75,10 +67,8 @@ class CrowIPAlarmPanel:
                             _LOGGER.debug(f"RX RAW: '{line}'")
                             self._parse_line(line)
                     except asyncio.TimeoutError:
-                        _LOGGER.debug("Keepalive Timeout - Sending STATUS")
                         await self.send_command("STATUS")
-                    except Exception as e:
-                        _LOGGER.error(f"Socket read error: {e}")
+                    except Exception:
                         break
 
             except (OSError, asyncio.TimeoutError) as e:
@@ -114,45 +104,40 @@ class CrowIPAlarmPanel:
                 _LOGGER.error(f"TX Error: {e}")
 
     async def _send_sequence(self, commands):
-        """Send commands sequentially with a delay to ensure panel processing."""
+        """Send commands sequentially with a delay."""
         for cmd in commands:
             if not self._running: break
-            # Ensure cmd is string
             await self.send_command(str(cmd))
-            # Critical delay for panel processing
-            await asyncio.sleep(0.7)
+            await asyncio.sleep(0.5)
 
-    # --- ACTIONS (KORRIGIERTE REIHENFOLGE) ---
+    # --- ACTIONS ---
 
     def disarm(self, code):
         """
-        Anforderung: CODE + ENTER
+        Sequence: CODE -> ENTER
+        The 'Disarm' button in HA acts as the 'Enter' key here.
         """
-        _LOGGER.info(f"Sending Disarm Sequence")
+        _LOGGER.info(f"Sending Disarm Sequence (Code + Enter)")
         asyncio.create_task(self._send_sequence([code, "E"]))
 
     def arm_away(self, code):
-        """
-        Anforderung: CODE + ARM + ENTER
-        """
+        """Sequence: CODE -> ARM -> ENTER"""
         c = code if code else self._code
         _LOGGER.info(f"Sending Arm Away Sequence")
         asyncio.create_task(self._send_sequence([c, "ARM", "E"]))
 
     def arm_stay(self, code):
-        """
-        Anforderung: CODE + STAY (Arm Home) + ENTER
-        """
+        """Sequence: CODE -> STAY -> ENTER"""
         c = code if code else self._code
         _LOGGER.info(f"Sending Arm Stay Sequence")
         asyncio.create_task(self._send_sequence([c, "STAY", "E"]))
 
     def bypass(self, code):
-        """
-        Anforderung: CODE + BYPASS + ENTER
-        """
+        """Sequence: CODE -> BYPASS -> ENTER"""
         c = code if code else self._code
         _LOGGER.info(f"Sending Bypass Sequence")
+        # Assuming 'BYPASS' is the command string, might be 'B' or 'MEM' depending on exact firmware
+        # Standard AAP/Crow is often 'B' or 'BYPASS'
         asyncio.create_task(self._send_sequence([c, "BYPASS", "E"]))
 
     def send_keypress(self, key):
@@ -164,19 +149,16 @@ class CrowIPAlarmPanel:
     def panic_alarm(self, panic_type):
         asyncio.create_task(self.send_command("PANIC"))
 
-    # --- PARSING (Status Update Fix) ---
+    # --- PARSING ---
     def _parse_line(self, line):
         line = line.upper()
 
-        # 1. ZONES (Standard AAP/Crow format: ZO1, ZC01, Zone 1 Open)
         if line.startswith(("ZO", "ZC", "ZA")) or "ZONE" in line:
             self._parse_zone(line)
 
-        # 2. OUTPUTS
         elif line.startswith(("OO", "OF", "RL")):
             self._parse_output(line)
         
-        # 3. SYSTEM
         elif "MAINS FAIL" in line or "POWER FAIL" in line:
             self.system_state['status']['mains'] = False
             self._notify_system()
@@ -190,30 +172,26 @@ class CrowIPAlarmPanel:
              self.system_state['status']['battery'] = True
              self._notify_system()
         
-        # 4. AREA STATUS (Das Wichtigste für das Panel)
-        # Wir müssen erkennen, ob Area A (1) oder B (2) gemeint ist.
-        target_area = 1 # Default
-        if "AREA B" in line or "AREA 2" in line or line.endswith(" B") or line.endswith(" 2"):
-            target_area = 2
+        # Area Logic
+        target_area = 2 if ("AREA B" in line or "AREA 2" in line or line.endswith(" B")) else 1
         
-        # Keywords parsing
+        # Enhanced Parsing for Panel Feedback
         if "ARMED" in line and "STAY" not in line:
              self._update_area(target_area, armed=True, stay=False, exit=False)
-        elif line.startswith("AR"): # Short code AR
+        elif line.startswith("AR"): 
              self._update_area(target_area, armed=True, stay=False, exit=False)
         
         elif "STAY" in line:
              self._update_area(target_area, armed=True, stay=True, exit=False)
-        elif line.startswith("ST"): # Short code ST
+        elif line.startswith("ST"):
              self._update_area(target_area, armed=True, stay=True, exit=False)
              
         elif "DISARMED" in line:
              self._update_area(target_area, armed=False, stay=False, exit=False)
-        elif line.startswith("DA"): # Short code DA
+        elif line.startswith("DA"):
              self._update_area(target_area, armed=False, stay=False, exit=False)
              
         elif "EXIT" in line or line.startswith("EX"):
-             # Exit Delay -> Pending
              self._update_area(target_area, exit=True)
              
         elif "ALARM" in line:
@@ -223,7 +201,6 @@ class CrowIPAlarmPanel:
 
     def _parse_zone(self, line):
         try:
-            # Versuche Nummer zu extrahieren. Format kann sein "ZO1", "ZO 1", "Zone 1 Open"
             import re
             match = re.search(r'\d+', line)
             if match:
@@ -239,12 +216,11 @@ class CrowIPAlarmPanel:
                     status['open'] = False
                 if "ZA" in line or "ALARM" in line:
                     status['alarm'] = True
-                    status['open'] = True # Alarm implies open often
+                    status['open'] = True 
                 
                 if self.callback_zone_state_change:
                     self.callback_zone_state_change(zone_id)
-        except Exception:
-            pass
+        except Exception: pass
 
     def _parse_output(self, line):
         try:
@@ -258,8 +234,7 @@ class CrowIPAlarmPanel:
                 self.output_state[out_id]['status']['open'] = is_on
                 if self.callback_output_state_change:
                     self.callback_output_state_change(out_id)
-        except Exception:
-            pass
+        except Exception: pass
 
     def _update_area(self, area_id, armed=None, stay=None, alarm=None, exit=None):
         if area_id not in self.area_state:
@@ -280,7 +255,7 @@ class CrowIPAlarmPanel:
             if status['stay_armed'] != stay:
                 status['stay_armed'] = stay
                 changed = True
-            if stay and status['armed']: # Stay is distinct form Armed Away
+            if stay and status['armed']: 
                 status['armed'] = False
                 changed = True
 
