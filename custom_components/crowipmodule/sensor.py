@@ -7,11 +7,10 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.const import CONF_HOST, EntityCategory # Für Diagnostik, falls wir den Text-Sensor auch so wollen
+from homeassistant.const import CONF_HOST
 
 from .const import (
     DOMAIN,
-    DATA_CRW,
     SIGNAL_SYSTEM_UPDATE,
 )
 
@@ -80,8 +79,6 @@ class CrowSystemSensor(SensorEntity):
             return "Low Battery"
             
         return "Ready"
-
-    # extra_state_attributes wurde ENTFERNT.
 
     @callback
     def _update_callback(self, system) -> None:
