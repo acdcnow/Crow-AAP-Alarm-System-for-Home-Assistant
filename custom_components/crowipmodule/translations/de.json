@@ -1,135 +1,70 @@
 {
-    "config": {
-        "step": {
-            "areas": {
-                "title": "Schritt 1/4: Bereiche (Areas)",
-                "description": "Bitte definiere die Namen der Alarm-Bereiche.",
-                "data": {
-                    "area_1_name": "Name Bereich 1 (A)",
-                    "area_1_code": "Code Bereich 1 (Optional)",
-                    "area_2_name": "Name Bereich 2 (B)",
-                    "area_2_code": "Code Bereich 2 (Optional)"
-                }
-            },
-            "outputs": {
-                "title": "Schritt 2/4: Schalter (Ausgänge)",
-                "description": "Benenne die zwei schaltbaren Ausgänge.",
-                "data": {
-                    "output_3_name": "Name Ausgang 3 (z.B. Modem)",
-                    "output_4_name": "Name Ausgang 4 (z.B. Gateway)"
-                }
-            },
-            "zones": {
-                "title": "Schritt 3/4: Zonen (Sensoren)",
-                "description": "Benenne deine Sensoren. Unbenutzte leer lassen.",
-                "data": {
-                    "zone_1_name": "Name Zone 1",
-                    "zone_1_type": "Typ Zone 1",
-                    "zone_2_name": "Name Zone 2",
-                    "zone_2_type": "Typ Zone 2",
-                    "zone_3_name": "Name Zone 3",
-                    "zone_3_type": "Typ Zone 3",
-                    "zone_4_name": "Name Zone 4",
-                    "zone_4_type": "Typ Zone 4",
-                    "zone_5_name": "Name Zone 5",
-                    "zone_5_type": "Typ Zone 5",
-                    "zone_6_name": "Name Zone 6",
-                    "zone_6_type": "Typ Zone 6",
-                    "zone_7_name": "Name Zone 7",
-                    "zone_7_type": "Typ Zone 7",
-                    "zone_8_name": "Name Zone 8",
-                    "zone_8_type": "Typ Zone 8",
-                    "zone_9_name": "Name Zone 9",
-                    "zone_9_type": "Typ Zone 9",
-                    "zone_10_name": "Name Zone 10",
-                    "zone_10_type": "Typ Zone 10",
-                    "zone_11_name": "Name Zone 11",
-                    "zone_11_type": "Typ Zone 11",
-                    "zone_12_name": "Name Zone 12",
-                    "zone_12_type": "Typ Zone 12",
-                    "zone_13_name": "Name Zone 13",
-                    "zone_13_type": "Typ Zone 13",
-                    "zone_14_name": "Name Zone 14",
-                    "zone_14_type": "Typ Zone 14",
-                    "zone_15_name": "Name Zone 15",
-                    "zone_15_type": "Typ Zone 15",
-                    "zone_16_name": "Name Zone 16",
-                    "zone_16_type": "Typ Zone 16"
-                }
-            },
-            "connection": {
-                "title": "Schritt 4/4: Verbindung",
-                "description": "Zum Abschluss bitte die IP-Adresse eingeben.",
-                "data": {
-                    "host": "IP Adresse",
-                    "port": "Port",
-                    "keepalive_interval": "Keepalive (Sek)",
-                    "timeout": "Timeout (Sek)"
-                }
-            }
-        },
-        "error": {
-            "cannot_connect": "Verbindung fehlgeschlagen"
-        },
-        "abort": {
-            "already_configured": "Gerät ist bereits konfiguriert"
+  "config": {
+    "step": {
+      "user": {
+        "title": "Crow IP Modul konfigurieren",
+        "description": "Richten Sie zuerst Ihre Bereiche ein."
+      },
+      "areas": {
+        "title": "Bereichskonfiguration",
+        "data": {
+          "area_1_name": "Name für Bereich 1",
+          "area_1_code": "Standardcode für Bereich 1",
+          "area_2_name": "Name für Bereich 2",
+          "area_2_code": "Standardcode für Bereich 2"
         }
-    },
-    "options": {
-        "step": {
-            "areas": {
-                "title": "Bereiche konfigurieren",
-                "data": {
-                    "area_1_name": "Name Bereich 1 (A)",
-                    "area_1_code": "Code Bereich 1 (Optional)",
-                    "area_2_name": "Name Bereich 2 (B)",
-                    "area_2_code": "Code Bereich 2 (Optional)"
-                }
-            },
-            "outputs": {
-                "title": "Schalter konfigurieren",
-                "data": {
-                    "output_3_name": "Name Ausgang 3",
-                    "output_4_name": "Name Ausgang 4"
-                }
-            },
-            "zones": {
-                "title": "Zonen konfigurieren",
-                "data": {
-                    "zone_1_name": "Name Zone 1",
-                    "zone_1_type": "Typ Zone 1",
-                    "zone_2_name": "Name Zone 2",
-                    "zone_2_type": "Typ Zone 2",
-                    "zone_3_name": "Name Zone 3",
-                    "zone_3_type": "Typ Zone 3",
-                    "zone_4_name": "Name Zone 4",
-                    "zone_4_type": "Typ Zone 4",
-                    "zone_5_name": "Name Zone 5",
-                    "zone_5_type": "Typ Zone 5",
-                    "zone_6_name": "Name Zone 6",
-                    "zone_6_type": "Typ Zone 6",
-                    "zone_7_name": "Name Zone 7",
-                    "zone_7_type": "Typ Zone 7",
-                    "zone_8_name": "Name Zone 8",
-                    "zone_8_type": "Typ Zone 8",
-                    "zone_9_name": "Name Zone 9",
-                    "zone_9_type": "Typ Zone 9",
-                    "zone_10_name": "Name Zone 10",
-                    "zone_10_type": "Typ Zone 10",
-                    "zone_11_name": "Name Zone 11",
-                    "zone_11_type": "Typ Zone 11",
-                    "zone_12_name": "Name Zone 12",
-                    "zone_12_type": "Typ Zone 12",
-                    "zone_13_name": "Name Zone 13",
-                    "zone_13_type": "Typ Zone 13",
-                    "zone_14_name": "Name Zone 14",
-                    "zone_14_type": "Typ Zone 14",
-                    "zone_15_name": "Name Zone 15",
-                    "zone_15_type": "Typ Zone 15",
-                    "zone_16_name": "Name Zone 16",
-                    "zone_16_type": "Typ Zone 16"
-                }
-            }
+      },
+      "outputs": {
+        "title": "Relaiskonfiguration",
+        "data": {
+          "output_1_name": "Name für Relais 1",
+          "output_2_name": "Name für Relais 2"
         }
+      },
+      "zones_count": {
+        "title": "Anzahl der Zonen",
+        "data": {
+          "zone_count": "Wie viele Zonen haben Sie?"
+        }
+      },
+      "zones": {
+        "title": "Zonenkonfiguration",
+        "description": "Konfigurieren Sie Name und Typ für jede Zone.",
+        "data": {
+          "zone_1_name": "Name für Zone 1", "zone_1_type": "Typ für Zone 1",
+          "zone_2_name": "Name für Zone 2", "zone_2_type": "Typ für Zone 2",
+          "zone_3_name": "Name für Zone 3", "zone_3_type": "Typ für Zone 3",
+          "zone_4_name": "Name für Zone 4", "zone_4_type": "Typ für Zone 4",
+          "zone_5_name": "Name für Zone 5", "zone_5_type": "Typ für Zone 5",
+          "zone_6_name": "Name für Zone 6", "zone_6_type": "Typ für Zone 6",
+          "zone_7_name": "Name für Zone 7", "zone_7_type": "Typ für Zone 7",
+          "zone_8_name": "Name für Zone 8", "zone_8_type": "Typ für Zone 8",
+          "zone_9_name": "Name für Zone 9", "zone_9_type": "Typ für Zone 9",
+          "zone_10_name": "Name für Zone 10", "zone_10_type": "Typ für Zone 10",
+          "zone_11_name": "Name für Zone 11", "zone_11_type": "Typ für Zone 11",
+          "zone_12_name": "Name für Zone 12", "zone_12_type": "Typ für Zone 12",
+          "zone_13_name": "Name für Zone 13", "zone_13_type": "Typ für Zone 13",
+          "zone_14_name": "Name für Zone 14", "zone_14_type": "Typ für Zone 14",
+          "zone_15_name": "Name für Zone 15", "zone_15_type": "Typ für Zone 15",
+          "zone_16_name": "Name für Zone 16", "zone_16_type": "Typ für Zone 16"
+        }
+      },
+      "connection": {
+        "title": "Verbindungseinstellungen",
+        "data": {
+          "host": "IP-Adresse",
+          "port": "Port",
+          "keepalive_interval": "Keep Alive Intervall (Sek)",
+          "timeout": "Zeitüberschreitung (Sek)"
+        }
+      }
     }
+  },
+  "options": {
+    "step": {
+      "areas": { "title": "Bereiche bearbeiten" },
+      "outputs": { "title": "Relais bearbeiten" },
+      "zones": { "title": "Zonen bearbeiten" }
+    }
+  }
 }
