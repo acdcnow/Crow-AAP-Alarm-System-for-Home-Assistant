@@ -1,0 +1,76 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Configura Crow IP Module",
+        "description": "Per favore configura prima le tue aree."
+      },
+      "areas": {
+        "title": "Configurazione Aree",
+        "data": {
+          "area_1_name": "Nome per Area 1",
+          "area_1_code": "Codice predefinito per Area 1",
+          "area_2_name": "Nome per Area 2",
+          "area_2_code": "Codice predefinito per Area 2"
+        }
+      },
+      "outputs": {
+        "title": "Configurazione Relè",
+        "data": {
+          "output_1_name": "Nome per Relè 1",
+          "output_2_name": "Nome per Relè 2"
+        }
+      },
+      "zones_count": {
+        "title": "Conteggio Zone",
+        "data": {
+          "zone_count": "Quante zone hai?"
+        }
+      },
+      "zones": {
+        "title": "Configurazione Zone",
+        "description": "Configura nome e tipo per ogni zona.",
+        "data": {
+          "zone_1_name": "Nome per Zona 1", "zone_1_type": "Tipo per Zona 1",
+          "zone_2_name": "Nome per Zona 2", "zone_2_type": "Tipo per Zona 2",
+          "zone_3_name": "Nome per Zona 3", "zone_3_type": "Tipo per Zona 3",
+          "zone_4_name": "Nome per Zona 4", "zone_4_type": "Tipo per Zona 4",
+          "zone_5_name": "Nome per Zona 5", "zone_5_type": "Tipo per Zona 5",
+          "zone_6_name": "Nome per Zona 6", "zone_6_type": "Tipo per Zona 6",
+          "zone_7_name": "Nome per Zona 7", "zone_7_type": "Tipo per Zona 7",
+          "zone_8_name": "Nome per Zona 8", "zone_8_type": "Tipo per Zona 8",
+          "zone_9_name": "Nome per Zona 9", "zone_9_type": "Tipo per Zona 9",
+          "zone_10_name": "Nome per Zona 10", "zone_10_type": "Tipo per Zona 10",
+          "zone_11_name": "Nome per Zona 11", "zone_11_type": "Tipo per Zona 11",
+          "zone_12_name": "Nome per Zona 12", "zone_12_type": "Tipo per Zona 12",
+          "zone_13_name": "Nome per Zona 13", "zone_13_type": "Tipo per Zona 13",
+          "zone_14_name": "Nome per Zona 14", "zone_14_type": "Tipo per Zona 14",
+          "zone_15_name": "Nome per Zona 15", "zone_15_type": "Tipo per Zona 15",
+          "zone_16_name": "Nome per Zona 16", "zone_16_type": "Tipo per Zona 16"
+        }
+      },
+      "connection": {
+        "title": "Impostazioni Connessione",
+        "data": {
+          "host": "Indirizzo IP",
+          "port": "Porta",
+          "keepalive_interval": "Intervallo Keep Alive (sec)",
+          "timeout": "Timeout (sec)"
+        }
+      }
+    }
+  },
+  "options": {
+    "step": {
+      "areas": {
+        "title": "Modifica Aree"
+      },
+      "outputs": {
+        "title": "Modifica Relè"
+      },
+      "zones": {
+        "title": "Modifica Zone"
+      }
+    }
+  }
+}
