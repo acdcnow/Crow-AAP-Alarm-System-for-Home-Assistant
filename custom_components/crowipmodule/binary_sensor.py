@@ -25,16 +25,16 @@ async def async_setup_entry(hass, entry, async_add_entities):
     
     entities = []
 
-    # 1. ZONEN (Fenster, Türen, Bewegung)
+    # 1. ZONEN
     configured_zones = options.get(CONF_ZONES, {})
     for zone_num_str, zone_info in configured_zones.items():
         zone_num = int(zone_num_str)
+        _LOGGER.debug(f"Adding Zone Sensor: {zone_num} ({zone_info['name']})")
         entities.append(CrowZoneSensor(
             controller, host, zone_num, zone_info["name"], zone_info["type"]
         ))
 
-    # 2. SYSTEM STATUS (Diagnose Sensoren)
-    # Definition: (Key im Dict, Name für UI, Device Class)
+    # 2. SYSTEM STATUS
     system_sensors = [
         (CONF_OBJ_MAINS, "Mains Power", BinarySensorDeviceClass.POWER),
         (CONF_OBJ_BATTERY, "System Battery", BinarySensorDeviceClass.BATTERY),
@@ -51,7 +51,6 @@ async def async_setup_entry(hass, entry, async_add_entities):
 
 
 class CrowBaseEntity(BinarySensorEntity):
-    """Basisklasse für alle Crow Binary Sensoren."""
     _attr_has_entity_name = True
 
     def __init__(self, controller, host):
@@ -69,7 +68,6 @@ class CrowBaseEntity(BinarySensorEntity):
         )
 
 class CrowZoneSensor(CrowBaseEntity):
-    """Repräsentation einer Alarm-Zone (Fenster/Tür)."""
     def __init__(self, controller, host, zone_number, zone_name, zone_type):
         super().__init__(controller, host)
         self._zone_number = zone_number
@@ -99,16 +97,12 @@ class CrowZoneSensor(CrowBaseEntity):
             self.async_write_ha_state()
 
 class CrowSystemStatusSensor(CrowBaseEntity):
-    """Repräsentation eines System-Status (Diagnose)."""
-    
     def __init__(self, controller, host, key, name, device_class):
         super().__init__(controller, host)
         self._key = key
         self._attr_name = name
         self._attr_device_class = device_class
         self._attr_unique_id = f"crow_sys_{key}"
-        
-        # WICHTIG: Setzt diese Sensoren in den Bereich "Diagnose"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
     async def async_added_to_hass(self):
@@ -118,36 +112,29 @@ class CrowSystemStatusSensor(CrowBaseEntity):
 
     @property
     def is_on(self):
-        """Berechnet den Status basierend auf dem Typ."""
         status = self._controller.system_state.get("status", {})
-        # Standard: API sendet True für "Alles OK" (Mains Present, Battery OK, Tamper Closed)
-        val = status.get(self._key, False) 
         
-        # 1. POWER (Mains):
-        # HA erwartet ON wenn Strom da ist.
-        # Crow sendet True wenn Strom da ist. -> Direkt übernehmen.
+        # Default True (OK)
+        val = status.get(self._key, True) 
+        
+        # 1. POWER (Mains): True=ON (Connected).
         if self._attr_device_class == BinarySensorDeviceClass.POWER:
             return val
             
-        # 2. CONNECTIVITY (Line/Dialler):
-        # HA erwartet ON wenn Verbunden.
-        # Crow sendet True wenn OK. -> Direkt übernehmen.
+        # 2. CONNECTIVITY: True=ON (Connected).
         if self._attr_device_class == BinarySensorDeviceClass.CONNECTIVITY:
             return val
 
-        # 3. BATTERY:
-        # HA erwartet ON wenn Batterie SCHWACH (Low) ist.
-        # Crow sendet True wenn Batterie OK ist. -> Invertieren!
+        # 3. BATTERY: HA expects ON for "Low Battery". Crow sends True for "OK".
         if self._attr_device_class == BinarySensorDeviceClass.BATTERY:
             return not val 
             
-        # 4. TAMPER:
-        # HA erwartet ON wenn MANIPULATION erkannt (Offen).
-        # Crow sendet True wenn Gehäuse OK (Geschlossen). -> Invertieren!
+        # 4. TAMPER: HA expects ON for "Tamper Detected". Crow sends True for "Closed/OK" (usually).
+        # Adjust based on observation: if default is False (No Tamper), we return val directly?
+        # Standard: Tamper=False (Good). Sensor=Off (Good).
         if self._attr_device_class == BinarySensorDeviceClass.TAMPER:
-            return not val
+            return val 
 
-        # Fallback
         return val
 
     @callback
