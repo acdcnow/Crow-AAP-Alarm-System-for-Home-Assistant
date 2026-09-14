@@ -1,6 +1,6 @@
 # Changelog
 
-## [1.0.0] - Refactoring for Home Assistant 2025.12+
+## [2.0.0] - Refactoring for Home Assistant 2025.12+
 
 This release marks a complete rewrite of the integration to support modern Home Assistant standards, introducing UI configuration (Config Flow) and removing the dependency on YAML configuration files.
 
