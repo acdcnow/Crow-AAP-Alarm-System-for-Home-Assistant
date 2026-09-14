@@ -46,6 +46,7 @@ SIGNAL_AREA_UPDATE = "crowipmodule.areas_updated"
 SIGNAL_SYSTEM_UPDATE = "crowipmodule.system_updated"
 SIGNAL_OUTPUT_UPDATE = "crowipmodule.output_updated"
 SIGNAL_KEYPAD_UPDATE = "crowipmodule.keypad_updated"
+SIGNAL_CONNECTION_UPDATE = "crowipmodule.connection_updated"
 
 # System status sensors keys
 CONF_OBJ_MAINS = "mains"
