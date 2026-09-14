@@ -1,358 +1,406 @@
+"""Crow/AAP Alarm IP Module TCP client.
+
+Threaded, blocking-socket transport (safe to run in a Home Assistant executor
+thread) that speaks the Crow/AAP line protocol. Command wire-formats and the
+RX line parser mirror the reference pycrowipmodule library, driven by the
+COMMANDS and RESPONSE_FORMATS tables in crow_defs.py.
+"""
 import logging
+import re
 import socket
 import threading
 import time
 
+from .crow_defs import COMMANDS, RESPONSE_FORMATS
+
 _LOGGER = logging.getLogger(__name__)
+
+# Socket read timeout during the listen loop. Kept short (independent of the
+# connection timeout) so the loop wakes regularly to service keep-alive and to
+# notice a requested shutdown promptly.
+_RECV_TIMEOUT = 5.0
 
 
 class CrowIPModuleClient:
-    """Thread-safe client for Crow IP Module with background worker loop and reconnect guards."""
+    """Thread-safe client for the Crow IP Module with reconnect and keep-alive."""
 
     def __init__(self, *args, **kwargs):
         self.panel = None
         self.host = None
         self.port = None
-        self.timeout = 5.0
-        self.keepalive = 60.0
+        self.timeout = 10.0
+        self.keepalive = 300.0
 
-        # Parse positional arguments: (panel, host, port) vs (host, port)
+        # Positional: (panel, loop) from CrowIPAlarmPanel, or (host, port).
         if args:
             if not isinstance(args[0], str):
                 self.panel = args[0]
-                if len(args) > 1 and args[1] is not None:
-                    self.host = str(args[1])
-                if len(args) > 2 and args[2] is not None:
-                    self.port = int(args[2])
+                if len(args) > 1 and isinstance(args[1], (int, float)):
+                    self.port = int(args[1])
             else:
                 self.host = str(args[0])
                 if len(args) > 1 and args[1] is not None:
                     self.port = int(args[1])
 
-        # Parse keyword arguments
-        if "panel" in kwargs and kwargs["panel"] is not None:
+        if kwargs.get("panel") is not None:
             self.panel = kwargs["panel"]
-        if "host" in kwargs and kwargs["host"] is not None:
+        if kwargs.get("host") is not None:
             self.host = str(kwargs["host"])
-        elif "ip" in kwargs and kwargs["ip"] is not None:
+        elif kwargs.get("ip") is not None:
             self.host = str(kwargs["ip"])
-        if "port" in kwargs and kwargs["port"] is not None:
+        if kwargs.get("port") is not None:
             self.port = int(kwargs["port"])
-        if "timeout" in kwargs and kwargs["timeout"] is not None:
+        if kwargs.get("timeout") is not None:
             self.timeout = float(kwargs["timeout"])
-        if "keepalive" in kwargs and kwargs["keepalive"] is not None:
+        if kwargs.get("keepalive") is not None:
             self.keepalive = float(kwargs["keepalive"])
 
-        # Extract host and port directly from parent panel attributes if not explicitly passed
-        if self.panel:
+        # Pull connection details straight off the panel object when present.
+        if self.panel is not None:
             if not self.host:
-                for attr in ("_host", "host", "_ip", "ip", "_address", "address"):
-                    if hasattr(self.panel, attr) and getattr(self.panel, attr):
-                        self.host = str(getattr(self.panel, attr))
-                        break
+                self.host = str(getattr(self.panel, "host", "") or getattr(self.panel, "_host", "") or "")
             if not self.port:
-                for attr in ("_port", "port"):
-                    if hasattr(self.panel, attr) and getattr(self.panel, attr):
-                        self.port = int(getattr(self.panel, attr))
-                        break
+                self.port = int(getattr(self.panel, "port", 0) or getattr(self.panel, "_port", 0) or 0)
+            panel_timeout = getattr(self.panel, "connection_timeout", None)
+            if panel_timeout:
+                self.timeout = float(panel_timeout)
+            panel_keepalive = getattr(self.panel, "keepalive_interval", None)
+            if panel_keepalive:
+                self.keepalive = float(panel_keepalive)
 
-        # Fallbacks if still unspecified
         if not self.host:
             self.host = "127.0.0.1"
         if not self.port:
             self.port = 5002
 
         self._socket = None
-        self._lock = threading.Lock()
-        self._connect_lock = threading.Lock()
+        self._send_lock = threading.Lock()
+        self._state_lock = threading.Lock()
 
-        self._is_connecting = False
         self._is_connected = False
         self._running = False
         self._thread = None
+        self._wakeup = threading.Event()
 
-        self._reconnect_timer = None
-        self._reconnect_delay = 10
+        self._base_reconnect_delay = 10
+        self._reconnect_delay = self._base_reconnect_delay
         self._max_reconnect_delay = 60
 
-        # Callbacks expected by pycrowipmodule.alarm_panel
-        self.callback_connected = None
-        self.callback_disconnected = None
-        self.callback_data = None
-
+    # ------------------------------------------------------------------ #
+    # Lifecycle
+    # ------------------------------------------------------------------ #
     def start(self):
-        """Start the background worker thread."""
-        with self._lock:
+        """Start the background worker thread (idempotent)."""
+        with self._state_lock:
             if self._running and self._thread and self._thread.is_alive():
-                _LOGGER.debug("Client worker thread is already running.")
+                _LOGGER.debug("Client worker thread already running.")
                 return
-
             self._running = True
-            self._thread = threading.Thread(target=self._run_loop, name="CrowIPClientThread", daemon=True)
+            self._wakeup.clear()
+            self._thread = threading.Thread(
+                target=self._run_loop, name="CrowIPClientThread", daemon=True
+            )
             self._thread.start()
 
     def stop(self):
-        """Stop the background worker thread and disconnect cleanly."""
+        """Stop the worker thread and close the socket."""
+        _LOGGER.debug("Stop requested for Crow IP client.")
         self._running = False
-        self.disconnect()
+        self._wakeup.set()
+        self._close_socket()
 
     def _run_loop(self):
-        """Main thread loop for connection handling and TCP stream processing."""
-        if self.connect():
-            time.sleep(0.2)
-            self.request_status()
+        """Supervised connect/listen/reconnect loop with exponential backoff."""
+        while self._running:
+            connected = self._connect()
+            if connected:
+                self._reconnect_delay = self._base_reconnect_delay
+                # Give the module a moment, then pull a full status dump.
+                self.request_status()
+                self._listen_loop()
 
-            # Follow-up status request at +4s to ensure HA entities receive state after setup completes
-            sync_timer = threading.Timer(4.0, self.request_status)
-            sync_timer.daemon = True
-            sync_timer.start()
+            if not self._running:
+                break
 
-            self._listen_loop()
+            delay = self._reconnect_delay
+            _LOGGER.info("Reconnecting to Crow IP Module in %d seconds...", delay)
+            self._wakeup.wait(delay)
+            self._reconnect_delay = min(self._reconnect_delay * 2, self._max_reconnect_delay)
 
-    def connect(self) -> bool:
-        """Establish connection safely using a single-execution guard lock."""
-        with self._connect_lock:
-            if self._is_connecting:
-                _LOGGER.debug("Connection attempt skipped: Already in progress.")
-                return False
-            if self._is_connected:
-                _LOGGER.debug("Connection attempt skipped: Already connected.")
-                return True
-            self._is_connecting = True
+        _LOGGER.debug("Crow IP client worker loop exited.")
 
-        self._cancel_reconnect_timer()
-
+    def _connect(self) -> bool:
+        """Open the TCP connection. Returns True on success."""
+        self._close_socket()
         try:
-            _LOGGER.info("Connecting to Crow IP Module on host: %s, port: %s", self.host, self.port)
-
-            self._close_socket()
-            time.sleep(0.5)
-
-            self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self._socket.settimeout(self.timeout)
-            self._socket.connect((self.host, self.port))
-
+            _LOGGER.info("Connecting to Crow IP Module at %s:%s", self.host, self.port)
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(self.timeout)
+            sock.connect((self.host, self.port))
+            # Shorten timeout for the read loop so it services keep-alive/shutdown.
+            sock.settimeout(_RECV_TIMEOUT)
+            self._socket = sock
             self._is_connected = True
-            self._reconnect_delay = 10
-
-            _LOGGER.info("Connection successfully made to Crow IP Module at %s:%s!", self.host, self.port)
-
-            if callable(self.callback_connected):
-                try:
-                    self.callback_connected(True)
-                except Exception as cb_err:
-                    _LOGGER.error("Error executing callback_connected: %s", cb_err)
-
+            _LOGGER.info("Connected to Crow IP Module at %s:%s.", self.host, self.port)
+            self._notify_connection(True)
             return True
-
-        except (socket.timeout, socket.error, Exception) as err:
-            _LOGGER.warning("Timeout or error connecting to Crow IP module (%s:%s): %s", self.host, self.port, err)
+        except (OSError, socket.timeout) as err:
+            _LOGGER.warning("Failed to connect to Crow IP Module (%s:%s): %s", self.host, self.port, err)
             self._is_connected = False
             self._close_socket()
-
-            if callable(self.callback_connected):
-                try:
-                    self.callback_connected(False)
-                except Exception:
-                    pass
-
-            self.schedule_reconnect()
+            self._notify_login_timeout()
             return False
 
-        finally:
-            with self._connect_lock:
-                self._is_connecting = False
-
     def _listen_loop(self):
-        """Continuously read data from the TCP socket while connected."""
+        """Read and dispatch lines until the connection drops or we stop."""
         buffer = ""
-        while self._running and self._is_connected and self._socket:
+        last_keepalive = time.monotonic()
+        while self._running and self._is_connected and self._socket is not None:
             try:
                 data = self._socket.recv(1024)
                 if not data:
-                    _LOGGER.warning("Crow IP Module connection closed by remote host.")
+                    _LOGGER.warning("Crow IP Module closed the connection.")
                     break
 
                 buffer += data.decode("ascii", errors="ignore")
                 while "\r\n" in buffer or "\n" in buffer:
-                    if "\r\n" in buffer:
-                        line, buffer = buffer.split("\r\n", 1)
-                    else:
-                        line, buffer = buffer.split("\n", 1)
-
-                    clean_line = line.strip()
-                    if clean_line:
-                        _LOGGER.debug("RX RAW: %s", clean_line)
-                        self._dispatch_line(clean_line)
+                    sep = "\r\n" if "\r\n" in buffer else "\n"
+                    line, buffer = buffer.split(sep, 1)
+                    line = line.strip()
+                    if line:
+                        _LOGGER.debug("RX: %s", line)
+                        self._dispatch_line(line)
 
             except socket.timeout:
+                # Idle tick: send keep-alive STATUS if the interval elapsed.
+                if time.monotonic() - last_keepalive >= self.keepalive:
+                    if self.request_status():
+                        last_keepalive = time.monotonic()
                 continue
-            except (socket.error, OSError) as err:
-                if not self._running or not self._is_connected:
-                    _LOGGER.debug("Socket connection closed during teardown.")
-                else:
-                    _LOGGER.warning("Error reading from socket: %s", err)
+            except (OSError, socket.error) as err:
+                if self._running:
+                    _LOGGER.warning("Socket read error: %s", err)
                 break
-            except Exception as err:
-                _LOGGER.warning("Unexpected error reading from socket: %s", err)
+            except Exception as err:  # noqa: BLE001 - never let the thread die silently
+                _LOGGER.exception("Unexpected error in Crow read loop: %s", err)
                 break
 
-        self.disconnect(reconnecting=True)
-        if self._running:
-            self.schedule_reconnect()
-
-    def _dispatch_line(self, line: str):
-        """Route received line to panel parser methods and notify all registered HA subscribers."""
-        if not self.panel:
-            return
-
-        # 1. Execute panel parser method so internal area and zone dictionaries update
-        parser_methods = (
-            "_commandResponseCallback",
-            "commandResponseCallback",
-            "handle_line",
-            "_handle_line",
-            "process_line",
-            "_process_line",
-            "parse_line",
-            "_parse_line",
-            "handle_data",
-            "_handle_data",
-        )
-        for method_name in parser_methods:
-            if hasattr(self.panel, method_name):
-                method = getattr(self.panel, method_name)
-                if callable(method):
-                    try:
-                        method(line)
-                        break
-                    except Exception as err:
-                        _LOGGER.error("Error executing panel parser %s: %s", method_name, err)
-
-        # 2. Collect all registered subscriber callbacks across self.panel and self
-        callbacks_to_trigger = []
-
-        # Check list/set containers where HA entity listeners are registered
-        for container_attr in (
-            "_callbacks", "callbacks",
-            "_listeners", "listeners",
-            "_subscribers", "subscribers",
-            "_handlers", "handlers"
-        ):
-            container = getattr(self.panel, container_attr, None)
-            if isinstance(container, (list, tuple, set)):
-                for item in container:
-                    if callable(item) and item not in callbacks_to_trigger:
-                        callbacks_to_trigger.append(item)
-
-        # Check single callback properties
-        for obj in (self.panel, self):
-            for cb_attr in ("callback", "_callback", "callback_data", "_callback_data", "data_callback"):
-                cb = getattr(obj, cb_attr, None)
-                if callable(cb):
-                    cb_name = getattr(cb, "__name__", "")
-                    if cb_name != "DefaultCallback" and cb not in callbacks_to_trigger:
-                        callbacks_to_trigger.append(cb)
-
-        # 3. Execute each discovered Home Assistant subscriber to trigger state write
-        for cb in callbacks_to_trigger:
-            try:
-                try:
-                    cb(line)
-                except TypeError:
-                    cb()
-            except Exception as cb_err:
-                _LOGGER.error("Error executing HA subscriber callback %s: %s", cb, cb_err)
-
-    def request_status(self) -> bool:
-        """Request initial status dump from panel."""
-        _LOGGER.info("Requesting initial STATUS dump from panel...")
-        return self.send_command("STATUS", "")
-
-    def send_command(self, code: str, data: str = "") -> bool:
-        """Send a raw text command to the panel."""
-        if not self._is_connected or not self._socket:
-            _LOGGER.warning("Cannot send command '%s': Not connected to Crow IP Module.", code)
-            return False
-
-        try:
-            cmd_str = f"{code} {data}\r\n" if data else f"{code}\r\n"
-            _LOGGER.debug("Preparing command: Code=%s, Data=%s", code, data)
-            _LOGGER.debug("TX RAW: %s", cmd_str.encode("ascii"))
-
-            with self._lock:
-                self._socket.sendall(cmd_str.encode("ascii"))
-            return True
-        except Exception as err:
-            _LOGGER.error("Failed to send command '%s' to panel: %s", code, err)
-            self.disconnect(reconnecting=True)
-            self.schedule_reconnect()
-            return False
-
-    def schedule_reconnect(self, delay: int = None):
-        """Schedule a single reconnection attempt with exponential backoff."""
-        with self._connect_lock:
-            self._cancel_reconnect_timer()
-
-            if delay is None:
-                delay = self._reconnect_delay
-                self._reconnect_delay = min(self._reconnect_delay * 2, self._max_reconnect_delay)
-
-            _LOGGER.info("Scheduling reconnect to Crow IP Module in %d seconds...", delay)
-
-            self._reconnect_timer = threading.Timer(delay, self._trigger_reconnect)
-            self._reconnect_timer.daemon = True
-            self._reconnect_timer.start()
-
-    def _trigger_reconnect(self):
-        """Timer callback to attempt reconnection in a background thread."""
-        _LOGGER.info("Reconnecting to Crow IP Module now...")
-        self.disconnect(reconnecting=True)
-        with self._lock:
-            self._running = False
-        self.start()
-
-    def _cancel_reconnect_timer(self):
-        """Cancel active reconnect timers."""
-        if self._reconnect_timer is not None:
-            _LOGGER.debug("Canceling active reconnect timer.")
-            try:
-                self._reconnect_timer.cancel()
-            except Exception:
-                pass
-            self._reconnect_timer = None
-
-    def disconnect(self, reconnecting: bool = False):
-        """Cleanly close socket transport and reset state."""
-        with self._connect_lock:
-            if not reconnecting:
-                self._cancel_reconnect_timer()
-
-            self._is_connected = False
-            _LOGGER.debug("Disconnecting transport...")
-            self._close_socket()
-            _LOGGER.info("Connection to Crow IP Module closed cleanly.")
-
-            if callable(self.callback_disconnected) and not reconnecting:
-                try:
-                    self.callback_disconnected()
-                except Exception as err:
-                    _LOGGER.error("Error executing callback_disconnected: %s", err)
+        self._is_connected = False
+        self._close_socket()
+        self._notify_connection(False)
 
     def _close_socket(self):
-        """Safely close active socket connection."""
-        if self._socket:
+        """Close the socket, ignoring teardown errors."""
+        sock = self._socket
+        self._socket = None
+        if sock is not None:
             try:
-                self._socket.shutdown(socket.SHUT_RDWR)
-            except Exception:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
                 pass
             try:
-                self._socket.close()
-            except Exception:
+                sock.close()
+            except OSError:
                 pass
-            self._socket = None
 
     @property
     def is_connected(self) -> bool:
-        """Return current connection state."""
         return self._is_connected
+
+    # ------------------------------------------------------------------ #
+    # Connection-state notifications (drive HA availability / refresh)
+    # ------------------------------------------------------------------ #
+    def _notify_connection(self, connected: bool):
+        cb = getattr(self.panel, "callback_connected", None) if self.panel else None
+        if callable(cb):
+            try:
+                cb(connected)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.error("Error in connected callback: %s", err)
+
+    def _notify_login_timeout(self):
+        cb = getattr(self.panel, "callback_login_timeout", None) if self.panel else None
+        if callable(cb):
+            try:
+                cb(False)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.error("Error in login-timeout callback: %s", err)
+
+    # ------------------------------------------------------------------ #
+    # Sending
+    # ------------------------------------------------------------------ #
+    def send_data(self, data: str) -> bool:
+        """Send a raw string, appending the CR/LF terminator."""
+        if not self._is_connected or self._socket is None:
+            _LOGGER.warning("Cannot send '%s': not connected.", data)
+            return False
+        payload = (data + "\r\n").encode("ascii")
+        try:
+            with self._send_lock:
+                self._socket.sendall(payload)
+            _LOGGER.debug("TX: %s", payload)
+            return True
+        except (OSError, socket.error) as err:
+            _LOGGER.error("Failed to send '%s': %s. Dropping connection.", data, err)
+            self._is_connected = False
+            self._close_socket()
+            return False
+
+    def send_command(self, code: str, data: str = "") -> bool:
+        """Format a command per the Crow protocol and send it.
+
+        `code` is a key in COMMANDS. Empty data yields "<CMD> "; the OO output
+        command concatenates its argument with no space ("OO1"); everything
+        else uses "<CMD> <data>".
+        """
+        if code not in COMMANDS:
+            _LOGGER.error("Unknown command key: %s", code)
+            return False
+        cmd = COMMANDS[code]
+        if data == "":
+            to_send = cmd + " "
+        elif cmd == "OO":
+            to_send = cmd + data
+        else:
+            to_send = cmd + " " + data
+        return self.send_data(to_send)
+
+    def request_status(self) -> bool:
+        """Ask the panel for a full status dump (also used as keep-alive)."""
+        return self.send_command("status", "")
+
+    # ------------------------------------------------------------------ #
+    # Public commands (called by CrowIPAlarmPanel)
+    # ------------------------------------------------------------------ #
+    def arm_stay(self):
+        self.send_command("stay", "")
+
+    def arm_away(self):
+        self.send_command("arm", "")
+
+    def disarm(self, code):
+        self.send_command("disarm", str(code) + "E")
+        self.request_status()
+
+    def send_keys(self, keys):
+        self.send_command("keys", str(keys) + "E")
+
+    def panic_alarm(self, panic_type):
+        self.send_command("panic", "")
+
+    def toggle_output(self, output_number):
+        self.send_command("toogle_output_x", str(output_number))
+
+    def toggle_chime(self):
+        self.send_command("toggle_chime", "")
+
+    def activate_relay(self, relay_no):
+        if int(relay_no) == 1:
+            self.send_command("relay_1_on", "")
+        else:
+            self.send_command("relay_2_on", "")
+
+    # ------------------------------------------------------------------ #
+    # Receiving / parsing
+    # ------------------------------------------------------------------ #
+    def _dispatch_line(self, line: str):
+        """Parse one line, update panel state, and invoke the HA callback."""
+        parsed = self._parse_line(line)
+        if not parsed:
+            return
+
+        result = None
+        handler = getattr(self, parsed.get("handler", ""), None)
+        if callable(handler):
+            try:
+                result = handler(parsed)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.error("Error in handler %s: %s", parsed.get("handler"), err)
+                return
+
+        callback = getattr(self.panel, parsed.get("callback", ""), None) if self.panel else None
+        if callable(callback):
+            try:
+                callback(result)
+            except Exception as err:  # noqa: BLE001
+                _LOGGER.error("Error in callback %s: %s", parsed.get("callback"), err)
+
+    def _parse_line(self, raw: str) -> dict:
+        """Match a line against RESPONSE_FORMATS and build a parsed record."""
+        result = {}
+        if not raw:
+            return result
+        for pattern, fmt in RESPONSE_FORMATS.items():
+            match = re.match(pattern, raw)
+            if not match:
+                continue
+            result["attribute"] = fmt["attr"]
+            result["name"] = fmt["name"]
+            result["status"] = fmt["status"]
+            result["handler"] = "handle_%s" % fmt["handler"]
+            result["callback"] = "callback_%s" % fmt["handler"]
+            if fmt["handler"] == "area_state_change":
+                result["area"] = fmt["area"]
+            result["data"] = match.group("data") if match.groupdict().get("data") else ""
+            break
+        return result
+
+    def handle_system_state_change(self, msg):
+        _LOGGER.debug("System state %s -> %s", msg["name"], msg["status"])
+        self.panel.system_state["status"][msg["attribute"]] = msg["status"]
+        return msg["attribute"]
+
+    def handle_output_state_change(self, msg):
+        _LOGGER.debug("Output state %s -> %s", msg["name"], msg["status"])
+        output_number = msg["data"]
+        idx = int(output_number)
+        if idx in self.panel.output_state:
+            self.panel.output_state[idx]["status"][msg["attribute"]] = msg["status"]
+        return output_number
+
+    def handle_area_state_change(self, msg):
+        _LOGGER.debug("Area state %s -> %s", msg["name"], msg["status"])
+        area_idx = int(msg["area"])
+        area_label = "A" if area_idx == 1 else "B"
+        status = self.panel.area_state[area_idx]["status"]
+
+        # A new area state message is exclusive: clear the others first.
+        status["armed"] = False
+        status["stay_armed"] = False
+        status["disarmed"] = False
+        status["exit_delay"] = False
+        status["stay_exit_delay"] = False
+        status[msg["attribute"]] = msg["status"]
+
+        if status["disarmed"]:
+            status["alarm"] = False
+            status["alarm_zone"] = ""
+
+        return area_label
+
+    def handle_zone_state_change(self, msg):
+        _LOGGER.debug("Zone %s state %s -> %s", msg["data"], msg["name"], msg["status"])
+        zone_number = msg["data"]
+        idx = int(zone_number)
+        if idx in self.panel.zone_state:
+            self.panel.zone_state[idx]["status"][msg["attribute"]] = msg["status"]
+
+        if msg["attribute"] == "alarm":
+            for area_idx in self.panel.area_state:
+                area_status = self.panel.area_state[area_idx]["status"]
+                if msg["status"]:
+                    area_status["alarm"] = True
+                    area_status["alarm_zone"] = zone_number
+                else:
+                    area_status["alarm"] = False
+                    area_status["alarm_zone"] = ""
+            # Refresh alarm panel entities as well as the zone sensor.
+            for label in ("A", "B"):
+                cb = getattr(self.panel, "callback_area_state_change", None)
+                if callable(cb):
+                    try:
+                        cb(label)
+                    except Exception as err:  # noqa: BLE001
+                        _LOGGER.error("Error invoking area callback: %s", err)
+
+        return zone_number
