@@ -1,5 +1,7 @@
 """Config flow for Crow IP Module integration."""
 import logging
+import socket
+
 import voluptuous as vol
 
 from homeassistant import config_entries
@@ -39,6 +41,16 @@ ZONE_TYPES = [
 
 PAGE_SIZE = 4
 
+
+def _test_connection(host: str, port: int, timeout: float) -> bool:
+    """Blocking TCP connect check. Run in the executor."""
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
 class CrowConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Crow IP Module."""
 
@@ -53,21 +65,30 @@ class CrowConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Step 1: Connection details and counts."""
         errors = {}
         if user_input is not None:
-            self._data = user_input
-            
-            selected_version = user_input[CONF_FW_VERSION]
-            self._data[CONF_FW_DATE] = FIRMWARE_PROFILES.get(selected_version, "unknown")
-            
-            self._options[CONF_AREAS] = {}
-            self._options[CONF_OUTPUTS] = {}
-            self._options[CONF_ZONES] = {}
-            
-            unique_id = f"{user_input[CONF_HOST]}_{user_input[CONF_PORT]}"
+            host = user_input[CONF_HOST]
+            port = user_input[CONF_PORT]
+            timeout = user_input.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
+
+            unique_id = f"{host}_{port}"
             await self.async_set_unique_id(unique_id)
-            if self._abort_if_unique_id_configured():
-                return self.async_abort(reason="unique_id_configured")
-            
-            return await self.async_step_areas()
+            self._abort_if_unique_id_configured()
+
+            connected = await self.hass.async_add_executor_job(
+                _test_connection, host, port, timeout
+            )
+            if not connected:
+                errors["base"] = "cannot_connect"
+            else:
+                self._data = user_input
+
+                selected_version = user_input[CONF_FW_VERSION]
+                self._data[CONF_FW_DATE] = FIRMWARE_PROFILES.get(selected_version, "unknown")
+
+                self._options[CONF_AREAS] = {}
+                self._options[CONF_OUTPUTS] = {}
+                self._options[CONF_ZONES] = {}
+
+                return await self.async_step_areas()
 
         fw_options = list(FIRMWARE_PROFILES.keys())
 
@@ -169,12 +190,11 @@ class CrowConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     def async_get_options_flow(config_entry):
-        return CrowOptionsFlowHandler(config_entry)
+        return CrowOptionsFlowHandler()
 
 
 class CrowOptionsFlowHandler(config_entries.OptionsFlow):
-    def __init__(self, config_entry):
-        self._config_entry = config_entry
+    def __init__(self):
         self._temp_data = {}
         self._temp_options = {}
         self._zone_page = 0
@@ -190,8 +210,8 @@ class CrowOptionsFlowHandler(config_entries.OptionsFlow):
             
             return await self.async_step_areas()
 
-        data = self._config_entry.data
-        options = self._config_entry.options
+        data = self.config_entry.data
+        options = self.config_entry.options
         
         c_areas = data.get(CONF_NUM_AREAS, len(options.get(CONF_AREAS, {})) or DEFAULT_NUM_AREAS)
         c_zones = data.get(CONF_NUM_ZONES, len(options.get(CONF_ZONES, {})) or DEFAULT_NUM_ZONES)
@@ -227,7 +247,7 @@ class CrowOptionsFlowHandler(config_entries.OptionsFlow):
                 }
             return await self.async_step_outputs()
 
-        existing = self._config_entry.options.get(CONF_AREAS, {})
+        existing = self.config_entry.options.get(CONF_AREAS, {})
         schema = {}
         for i in range(1, count + 1):
             d = existing.get(str(i), {})
@@ -255,7 +275,7 @@ class CrowOptionsFlowHandler(config_entries.OptionsFlow):
             self._temp_options[CONF_ZONES] = {}
             return await self.async_step_zones()
 
-        existing = self._config_entry.options.get(CONF_OUTPUTS, {})
+        existing = self.config_entry.options.get(CONF_OUTPUTS, {})
         schema = {}
         for i in range(1, count + 1):
             d = existing.get(str(i), {})
@@ -284,16 +304,16 @@ class CrowOptionsFlowHandler(config_entries.OptionsFlow):
         start_idx = self._zone_page * PAGE_SIZE + 1
         
         if start_idx > count:
-            new_data = self._config_entry.data.copy()
+            new_data = self.config_entry.data.copy()
             new_data.update(self._temp_data)
             # Only update entry.data here; options are saved by async_create_entry below.
             # Passing options= here AND data={} to async_create_entry would wipe the options.
-            self.hass.config_entries.async_update_entry(self._config_entry, data=new_data)
+            self.hass.config_entries.async_update_entry(self.config_entry, data=new_data)
             # async_create_entry saves self._temp_options as the new options and
             # automatically triggers update_listener → reload. No manual reload needed.
             return self.async_create_entry(title="", data=self._temp_options)
 
-        existing_zones = self._config_entry.options.get(CONF_ZONES, {})
+        existing_zones = self.config_entry.options.get(CONF_ZONES, {})
         end_idx = min(start_idx + PAGE_SIZE - 1, count)
         
         schema = {}
