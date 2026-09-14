@@ -1,6 +1,6 @@
 import logging
-from pycrowipmodule import CrowIPModuleClient
-from pycrowipmodule import StatusState
+from .crow_base_client import CrowIPModuleClient
+from .status_state import StatusState
 
 _LOGGER = logging.getLogger(__name__)
 COMMAND_ERR = "Cannot run this command while disconnected. Please run start() first."
@@ -77,6 +77,11 @@ class CrowIPAlarmPanel():
     @property
     def output_state(self):
         return self._outputState
+
+    @property
+    def is_connected(self):
+        """Return True when the underlying client has a live connection."""
+        return bool(self._client and self._client.is_connected)
 
     @property
     def callback_connected(self):
@@ -199,6 +204,14 @@ class CrowIPAlarmPanel():
         _LOGGER.debug(f"Public API: command_output called for output {outputNumber}")
         if self._client:
             self._client.toggle_output(outputNumber)
+        else:
+            _LOGGER.error(COMMAND_ERR)
+
+    def toggle_chime(self):
+        """Public method to toggle the keypad chime."""
+        _LOGGER.debug("Public API: toggle_chime called")
+        if self._client:
+            self._client.toggle_chime()
         else:
             _LOGGER.error(COMMAND_ERR)
 
