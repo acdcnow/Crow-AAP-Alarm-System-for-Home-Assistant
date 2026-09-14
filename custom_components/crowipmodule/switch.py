@@ -6,15 +6,16 @@ from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.entity import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.const import CONF_HOST
 
 from .const import (
     DOMAIN,
     SIGNAL_OUTPUT_UPDATE,
+    SIGNAL_CONNECTION_UPDATE,
     CONF_OUTPUTS,
-    CONF_FW_VERSION, CONF_FW_DATE, 
+    CONF_FW_VERSION, CONF_FW_DATE,
     DEFAULT_FW_VERSION, DEFAULT_FW_DATE
 )
 
@@ -23,7 +24,7 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     controller = hass.data[DOMAIN][entry.entry_id]
     options = entry.options
@@ -56,12 +57,20 @@ async def async_setup_entry(
 
 class CrowBaseSwitch(SwitchEntity):
     _attr_has_entity_name = True
-    _attr_should_poll = False 
+    _attr_should_poll = False
 
     def __init__(self, controller, host, fw_version, fw_date):
         self._controller = controller
         self._host = host
         self._fw_string = f"{fw_version} ({fw_date})"
+
+    @property
+    def available(self) -> bool:
+        return self._controller.is_connected
+
+    @callback
+    def _connection_callback(self, _connected) -> None:
+        self.async_write_ha_state()
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -90,12 +99,17 @@ class CrowOutput(CrowBaseSwitch):
         self.async_on_remove(
             async_dispatcher_connect(self.hass, SIGNAL_OUTPUT_UPDATE, self._update_callback)
         )
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_CONNECTION_UPDATE, self._connection_callback)
+        )
 
     @property
     def is_on(self) -> bool:
         return self._is_on
 
     async def async_turn_on(self, **kwargs: Any) -> None:
+        if self._is_on:
+            return
         _LOGGER.info("Turn ON Output %s", self._output_number)
         try:
             self._controller.command_output(str(self._output_number))
@@ -105,6 +119,8 @@ class CrowOutput(CrowBaseSwitch):
              _LOGGER.error("Error switching output ON: %s", e)
 
     async def async_turn_off(self, **kwargs: Any) -> None:
+        if not self._is_on:
+            return
         _LOGGER.info("Turn OFF Output %s", self._output_number)
         try:
             self._controller.command_output(str(self._output_number))
