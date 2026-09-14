@@ -5,17 +5,29 @@ from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
 )
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.entity import DeviceInfo, EntityCategory
+from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.const import CONF_HOST, EntityCategory
 from homeassistant.core import callback
-from homeassistant.const import CONF_HOST
 
 from .const import (
-    DOMAIN, SIGNAL_ZONE_UPDATE, SIGNAL_SYSTEM_UPDATE,
-    CONF_ZONES, CONF_OBJ_MAINS, CONF_OBJ_BATTERY, 
+    DOMAIN, SIGNAL_ZONE_UPDATE, SIGNAL_SYSTEM_UPDATE, SIGNAL_CONNECTION_UPDATE,
+    CONF_ZONES, CONF_OBJ_MAINS, CONF_OBJ_BATTERY,
     CONF_OBJ_TAMPER, CONF_OBJ_LINE, CONF_OBJ_DIALLER, CONF_OBJ_ZONE_BATTERY
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# Map configured zone type strings to valid BinarySensorDeviceClass values.
+_ZONE_DEVICE_CLASSES = {
+    "window": BinarySensorDeviceClass.WINDOW,
+    "door": BinarySensorDeviceClass.DOOR,
+    "motion": BinarySensorDeviceClass.MOTION,
+    "smoke": BinarySensorDeviceClass.SMOKE,
+    "gas": BinarySensorDeviceClass.GAS,
+    "co": BinarySensorDeviceClass.CO,
+    "tamper": BinarySensorDeviceClass.TAMPER,
+    "safety": BinarySensorDeviceClass.SAFETY,
+}
 
 async def async_setup_entry(hass, entry, async_add_entities):
     controller = hass.data[DOMAIN][entry.entry_id]
@@ -62,7 +74,15 @@ class CrowBaseEntity(BinarySensorEntity):
     def __init__(self, controller, host):
         self._controller = controller
         self._host = host
-    
+
+    @property
+    def available(self) -> bool:
+        return self._controller.is_connected
+
+    @callback
+    def _connection_callback(self, _connected):
+        self.async_write_ha_state()
+
     @property
     def device_info(self) -> DeviceInfo:
         """Default device info for system sensors (Main Panel)."""
@@ -80,13 +100,18 @@ class CrowZoneSensor(CrowBaseEntity):
         super().__init__(controller, host)
         self._zone_number = zone_number
         self._attr_name = zone_name
-        self._attr_device_class = zone_type
+        self._attr_device_class = _ZONE_DEVICE_CLASSES.get(zone_type)
+        if self._attr_device_class is None and zone_type:
+            _LOGGER.warning("Unknown zone type '%s' for zone %s; no device class set", zone_type, zone_number)
         self._attr_unique_id = f"crow_zone_{zone_number}"
         self._info = controller.zone_state.get(zone_number, {"status": {"open": False}})
 
     async def async_added_to_hass(self):
         self.async_on_remove(
             async_dispatcher_connect(self.hass, SIGNAL_ZONE_UPDATE, self._update_callback)
+        )
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_CONNECTION_UPDATE, self._connection_callback)
         )
 
     @property
@@ -146,6 +171,9 @@ class CrowSystemStatusSensor(CrowBaseEntity):
     async def async_added_to_hass(self):
         self.async_on_remove(
             async_dispatcher_connect(self.hass, SIGNAL_SYSTEM_UPDATE, self._update_callback)
+        )
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_CONNECTION_UPDATE, self._connection_callback)
         )
 
     @property
