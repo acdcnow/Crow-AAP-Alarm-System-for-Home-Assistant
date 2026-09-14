@@ -1,8 +1,6 @@
 """Crow/AAP IP Module init file."""
 import asyncio
 import logging
-import os
-import sys
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -11,23 +9,23 @@ from homeassistant.const import (
 )
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
-# --- LIBRARY IMPORT HACK ---
-current_dir = os.path.dirname(os.path.abspath(__file__))
-if current_dir not in sys.path:
-    sys.path.append(current_dir)
-
-from pycrowipmodule import CrowIPAlarmPanel
-# ---------------------------
+from .pycrowipmodule import CrowIPAlarmPanel
 
 from .const import (
     DOMAIN, CONF_KEEP_ALIVE, DEFAULT_KEEPALIVE,
-    SIGNAL_ZONE_UPDATE, SIGNAL_AREA_UPDATE, 
-    SIGNAL_SYSTEM_UPDATE, SIGNAL_OUTPUT_UPDATE
+    SIGNAL_ZONE_UPDATE, SIGNAL_AREA_UPDATE,
+    SIGNAL_SYSTEM_UPDATE, SIGNAL_OUTPUT_UPDATE, SIGNAL_CONNECTION_UPDATE
 )
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = [Platform.ALARM_CONTROL_PANEL, Platform.BINARY_SENSOR, Platform.SENSOR, Platform.SWITCH]
+PLATFORMS = [
+    Platform.ALARM_CONTROL_PANEL,
+    Platform.BINARY_SENSOR,
+    Platform.BUTTON,
+    Platform.SENSOR,
+    Platform.SWITCH,
+]
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     """Set up the Crow IP Module component."""
@@ -71,7 +69,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _thread_safe_send(SIGNAL_OUTPUT_UPDATE, data)
 
     def connected_callback(data):
+        """Called by the client on connect (True) and disconnect (False)."""
+        connected = bool(data)
+        _thread_safe_send(SIGNAL_CONNECTION_UPDATE, connected)
+        if not connected:
+            _LOGGER.warning("Connection lost to Crow IP Module.")
+            return
+
         _LOGGER.info("Successfully connected to Crow IP Module at %s", host)
+
         async def delayed_refresh():
             await asyncio.sleep(2.0)
             async_dispatcher_send(hass, SIGNAL_SYSTEM_UPDATE, None)
@@ -84,6 +90,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     def connection_fail_callback(data):
         _LOGGER.warning("Connection lost/failed to Crow IP Module. Reconnecting...")
+        _thread_safe_send(SIGNAL_CONNECTION_UPDATE, False)
 
     controller.callback_zone_state_change = zones_updated_callback
     controller.callback_area_state_change = areas_updated_callback
