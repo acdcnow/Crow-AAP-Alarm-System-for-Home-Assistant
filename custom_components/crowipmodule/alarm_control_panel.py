@@ -10,14 +10,15 @@ from homeassistant.components.alarm_control_panel import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.entity import DeviceInfo
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.const import CONF_HOST
 
 from .const import (
     DOMAIN,
     SIGNAL_AREA_UPDATE,
     SIGNAL_KEYPAD_UPDATE,
+    SIGNAL_CONNECTION_UPDATE,
     CONF_AREAS,
     CONF_NUM_AREAS,
     DEFAULT_NUM_AREAS,
@@ -32,7 +33,7 @@ _LOGGER = logging.getLogger(__name__)
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     _LOGGER.debug("Setting up Alarm Control Panel entities...")
     controller = hass.data[DOMAIN][entry.entry_id]
@@ -113,6 +114,17 @@ class CrowAlarmPanel(AlarmControlPanelEntity):
         self.async_on_remove(
             async_dispatcher_connect(self.hass, SIGNAL_KEYPAD_UPDATE, self._update_callback)
         )
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_CONNECTION_UPDATE, self._connection_callback)
+        )
+
+    @callback
+    def _connection_callback(self, _connected) -> None:
+        self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        return self._controller.is_connected
 
     @callback
     def _update_callback(self, area) -> None:
