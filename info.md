@@ -15,7 +15,7 @@ It communicates directly with the IP module over the local network to provide re
 
 ## 📋 Requirements
 
-* **Home Assistant:** Version 2025.12.3 or newer.
+* **Home Assistant:** Version 2026.09.0 or newer.
 * **Hardware:** Crow Runner or AAP control panel with an installed IP Module.
 * **Network:** The IP Module must be connected to the same network as Home Assistant.
 
@@ -95,7 +95,7 @@ Here is a detailed **CHANGELOG** summarizing the refactoring from the original Y
 
 # Changelog
 
-## [1.0.0] - Refactoring for Home Assistant 2025.12+
+## [2.0.0] - Refactoring for Home Assistant 2026.09+
 
 This release marks a complete rewrite of the integration to support modern Home Assistant standards, introducing UI configuration (Config Flow) and removing the dependency on YAML configuration files.
 
