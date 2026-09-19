@@ -18,7 +18,6 @@ FIRMWARE_PROFILES = {
 
 # Defaults
 DEFAULT_FW_VERSION = "Ver 2.10.3628 2017"
-# WICHTIG: Diese Konstante fehlte und verursachte den ImportError
 DEFAULT_FW_DATE = "Oct 20 09:48:43"
 
 # Dynamic Configuration Keys
@@ -39,6 +38,21 @@ DEFAULT_NUM_OUTPUTS = 2
 DEFAULT_PORT = 5002
 DEFAULT_TIMEOUT = 10
 DEFAULT_KEEPALIVE = 300
+
+# Device registry
+# NOTE: the identifier strings are part of the stored registry and must not be
+# changed, otherwise every existing installation would get a duplicate device.
+MANUFACTURER = "Crow/AAP"
+MODEL_IP_MODULE = "IP Module"
+MODEL_IP_MODULE_ZONE = "IP Module Zone"
+IDENTIFIER_HUB = "crow_alarm_panel"
+IDENTIFIER_WINDOWS = "crow_windows"
+IDENTIFIER_DOORS = "crow_doors"
+IDENTIFIER_SENSORS = "crow_sensors"
+DEVICE_NAME = "Crow Alarm System"
+DEVICE_NAME_WINDOWS = "Crow Alarm Windows"
+DEVICE_NAME_DOORS = "Crow Alarm Doors"
+DEVICE_NAME_SENSORS = "Crow Alarm Sensors"
 
 # Signals
 SIGNAL_ZONE_UPDATE = "crowipmodule.zones_updated"

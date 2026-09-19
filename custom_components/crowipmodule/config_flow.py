@@ -30,7 +30,7 @@ from .const import (
     DEFAULT_NUM_AREAS,
     DEFAULT_NUM_ZONES,
     DEFAULT_NUM_OUTPUTS,
-    DEFAULT_FW_DATE # <--- Wichtig
+    DEFAULT_FW_DATE,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -203,7 +203,7 @@ class CrowOptionsFlowHandler(config_entries.OptionsFlow):
         if user_input is not None:
             self._temp_data = user_input
             
-            # Datum updaten falls Version geändert wurde
+            # Refresh the firmware build date when the version changed.
             new_version = user_input.get(CONF_FW_VERSION)
             if new_version:
                 self._temp_data[CONF_FW_DATE] = FIRMWARE_PROFILES.get(new_version, "unknown")

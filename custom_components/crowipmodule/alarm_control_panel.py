@@ -1,4 +1,7 @@
 """Support for Crow IP Module Alarm Control Panel."""
+
+from __future__ import annotations
+
 import logging
 
 from homeassistant.components.alarm_control_panel import (
@@ -8,25 +11,22 @@ from homeassistant.components.alarm_control_panel import (
     CodeFormat,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.const import CONF_HOST
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from .const import (
-    DOMAIN,
-    SIGNAL_AREA_UPDATE,
-    SIGNAL_KEYPAD_UPDATE,
-    SIGNAL_CONNECTION_UPDATE,
     CONF_AREAS,
     CONF_NUM_AREAS,
     DEFAULT_NUM_AREAS,
-    CONF_FW_VERSION,
-    CONF_FW_DATE,
-    DEFAULT_FW_VERSION,
-    DEFAULT_FW_DATE,
+    DEVICE_NAME,
+    SIGNAL_AREA_UPDATE,
+    SIGNAL_CONNECTION_UPDATE,
+    SIGNAL_KEYPAD_UPDATE,
 )
+from .device import build_device_info
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -36,13 +36,11 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     _LOGGER.debug("Setting up Alarm Control Panel entities...")
-    controller = hass.data[DOMAIN][entry.entry_id]
+    controller = entry.runtime_data.controller
     options = entry.options
     host = entry.data[CONF_HOST]
-    
-    fw_version = entry.data.get(CONF_FW_VERSION, DEFAULT_FW_VERSION)
-    fw_date = entry.data.get(CONF_FW_DATE, DEFAULT_FW_DATE)
-    
+    firmware = entry.runtime_data.firmware
+
     configured_areas = options.get(CONF_AREAS, {})
 
     if not configured_areas:
@@ -64,8 +62,7 @@ async def async_setup_entry(
                 area_data.get("name", f"Area {area_num}"),
                 area_data.get("code", ""),
                 area_data.get("code_arm_required", True),
-                fw_version,
-                fw_date
+                firmware
             ))
         except ValueError:
             _LOGGER.error("Invalid area number found in config: %s", area_num_str)
@@ -77,10 +74,10 @@ class CrowAlarmPanel(AlarmControlPanelEntity):
     _attr_name = None
     _attr_should_poll = False
 
-    def __init__(self, controller, host, entry_id, area_number, name, code, code_required, fw_version, fw_date) -> None:
+    def __init__(self, controller, host, entry_id, area_number, name, code, code_required, firmware) -> None:
         self._controller = controller
         self._host = host
-        self._fw_string = f"{fw_version} ({fw_date})"
+        self._firmware = firmware
 
         self._area_number_int = area_number
         self._area_number = "A" if area_number == 1 else "B"
@@ -98,13 +95,10 @@ class CrowAlarmPanel(AlarmControlPanelEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={(DOMAIN, "crow_alarm_panel")},
-            name="Crow Alarm System",
-            manufacturer="Crow/AAP",
-            model="IP Module",
-            sw_version=self._fw_string,
-            configuration_url=f"http://{self._host}",
+        return build_device_info(
+            name=DEVICE_NAME,
+            host=self._host,
+            sw_version=self._firmware,
         )
 
     async def async_added_to_hass(self) -> None:

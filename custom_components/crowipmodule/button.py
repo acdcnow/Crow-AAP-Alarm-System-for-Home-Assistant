@@ -1,20 +1,19 @@
 """Support for Crow IP Module buttons (Chime toggle, Relay activation)."""
+
+from __future__ import annotations
+
 import logging
 
 from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.device_registry import DeviceInfo
-from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.const import CONF_HOST
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from .const import (
-    DOMAIN,
-    SIGNAL_CONNECTION_UPDATE,
-    CONF_FW_VERSION, CONF_FW_DATE,
-    DEFAULT_FW_VERSION, DEFAULT_FW_DATE,
-)
+from .const import DEVICE_NAME, SIGNAL_CONNECTION_UPDATE
+from .device import CrowRuntimeData, build_device_info
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -24,15 +23,14 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    controller = hass.data[DOMAIN][entry.entry_id]
+    runtime_data: CrowRuntimeData = entry.runtime_data
+    controller = runtime_data.controller
     host = entry.data[CONF_HOST]
-    fw_version = entry.data.get(CONF_FW_VERSION, DEFAULT_FW_VERSION)
-    fw_date = entry.data.get(CONF_FW_DATE, DEFAULT_FW_DATE)
 
     entities = [
-        CrowChimeButton(controller, host, fw_version, fw_date),
-        CrowRelayButton(controller, host, 1, "Relay 1", fw_version, fw_date),
-        CrowRelayButton(controller, host, 2, "Relay 2", fw_version, fw_date),
+        CrowChimeButton(runtime_data, host),
+        CrowRelayButton(runtime_data, host, 1, "Relay 1"),
+        CrowRelayButton(runtime_data, host, 2, "Relay 2"),
     ]
     async_add_entities(entities)
 
@@ -41,10 +39,10 @@ class CrowBaseButton(ButtonEntity):
     _attr_has_entity_name = True
     _attr_should_poll = False
 
-    def __init__(self, controller, host, fw_version, fw_date):
-        self._controller = controller
+    def __init__(self, runtime_data: CrowRuntimeData, host: str) -> None:
+        self._runtime_data = runtime_data
+        self._controller = runtime_data.controller
         self._host = host
-        self._fw_string = f"{fw_version} ({fw_date})"
 
     @property
     def available(self) -> bool:
@@ -61,21 +59,18 @@ class CrowBaseButton(ButtonEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={(DOMAIN, "crow_alarm_panel")},
-            name="Crow Alarm System",
-            manufacturer="Crow/AAP",
-            model="IP Module",
-            sw_version=self._fw_string,
-            configuration_url=f"http://{self._host}",
+        return build_device_info(
+            name=DEVICE_NAME,
+            host=self._host,
+            sw_version=self._runtime_data.firmware,
         )
 
 
 class CrowChimeButton(CrowBaseButton):
     _attr_icon = "mdi:bell-ring"
 
-    def __init__(self, controller, host, fw_version, fw_date) -> None:
-        super().__init__(controller, host, fw_version, fw_date)
+    def __init__(self, runtime_data, host) -> None:
+        super().__init__(runtime_data, host)
         self._attr_name = "Toggle Chime"
         self._attr_unique_id = "crow_toggle_chime"
 
@@ -90,8 +85,8 @@ class CrowChimeButton(CrowBaseButton):
 class CrowRelayButton(CrowBaseButton):
     _attr_icon = "mdi:electric-switch"
 
-    def __init__(self, controller, host, relay_no, name, fw_version, fw_date) -> None:
-        super().__init__(controller, host, fw_version, fw_date)
+    def __init__(self, runtime_data, host, relay_no, name) -> None:
+        super().__init__(runtime_data, host)
         self._relay_no = relay_no
         self._attr_name = name
         self._attr_unique_id = f"crow_relay_{relay_no}"

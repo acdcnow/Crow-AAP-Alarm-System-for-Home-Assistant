@@ -1,5 +1,55 @@
 # Changelog
 
+## [2.1.0] - Home Assistant 2026.9 compatibility
+
+Targets Home Assistant **2026.9.3** (which requires Python 3.14.2+).
+
+### 🔧 Fixed
+
+* **Removed the deprecated `via_device` from `DeviceInfo`.** Home Assistant
+  deprecated identifier-tuple based `via_device` in favour of `via_device_id`,
+  and removes the old key in **2027.8**. The main panel is now registered in
+  `async_setup_entry` before the platforms are set up, and the zone sub-devices
+  (Windows / Doors / Sensors) link to it through `via_device_id`.
+* **`configuration_url` is now validated before it is sent to the device
+  registry.** Home Assistant rejects a `configuration_url` without an
+  http(s) scheme and a host, which previously raised `ValueError` and aborted
+  the device registration for hosts entered with a scheme or a path.
+* **Device info is built in one place** (`device.py`). Previously six copies of
+  the same `DeviceInfo(...)` block had drifted apart - some omitted
+  `sw_version`, none shared the identifier constants.
+* **`async_unload_entry` no longer raises** when setup failed before the
+  controller existed, and `controller.stop()` is now always called through the
+  executor.
+* **Shutdown runs off the event loop.** The `EVENT_HOMEASSISTANT_STOP` handler
+  closed the socket synchronously in the event loop.
+* **Options are actually reloaded after a change** (`update_listener` is
+  registered and the entry is reloaded, so renamed areas/zones/outputs and
+  changed codes take effect immediately).
+* **`translations/en.json` now matches `strings.json`.** The two had drifted,
+  so the English options flow showed generic labels.
+
+### 🛠 Changed
+
+* **`hass.data[DOMAIN][entry_id]` replaced with `entry.runtime_data`**
+  (`CrowRuntimeData`), the current Home Assistant pattern for per-entry state.
+* **`manifest.json`:** added the required `issue_tracker`, dropped the empty
+  `requirements` list, corrected the `documentation` URL and bumped the version.
+* **`hacs.json`:** dropped the removed `domains` key and `iot_class` (which
+  belongs in the manifest), set the minimum Home Assistant version.
+* Removed leftover German/English placeholder comments and the "AI draft"
+  preamble from the README.
+
+### ✨ Added
+
+* **Brand assets** in `custom_components/crowipmodule/brand/`
+  (`icon.png` 256x256, `icon@2x.png` 512x512, and light/dark `logo.png` /
+  `logo@2x.png`). Since Home Assistant 2026.3 custom integrations ship their own
+  brand images and local files take precedence over the brands CDN, so no pull
+  request to `home-assistant/brands` is needed.
+* **Verification harnesses** under `tests/` that pin the Home Assistant 2026.9
+  entity and config-flow contracts without needing Home Assistant installed.
+
 ## [2.0.0] - Refactoring for Home Assistant 2025.12+
 
 This release marks a complete rewrite of the integration to support modern Home Assistant standards, introducing UI configuration (Config Flow) and removing the dependency on YAML configuration files.

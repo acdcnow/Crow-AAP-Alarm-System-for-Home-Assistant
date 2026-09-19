@@ -1,4 +1,5 @@
 """Diagnostics support for the Crow IP Module integration."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -7,7 +8,7 @@ from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN, CONF_AREAS
+from .const import CONF_AREAS
 
 TO_REDACT = {"code", "host"}
 
@@ -16,7 +17,7 @@ async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: ConfigEntry
 ) -> dict[str, Any]:
     """Return diagnostics for a config entry."""
-    controller = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+    controller = getattr(entry.runtime_data, "controller", None)
 
     # Redact per-area codes from the options before exposing them.
     options = dict(entry.options)

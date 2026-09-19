@@ -1,12 +1,14 @@
-Here is a complete, professional `README.md` file for your GitHub repository. It covers the installation via HACS, configuration, features, and debugging.
-
----
-
 # Crow/AAP Alarm IP Module for Home Assistant
 
 This is a custom integration for **Home Assistant** to control **Crow Runner**, **AAP (Arrowhead Alarm Products)**, and compatible alarm systems equipped with the **IP Module** (ESIM/TCP) running Firmware Ver 2.10.3628 2017 Oct 20 09:48:43.
 
-Unlike previous solutions, this integration uses a **direct local TCP implementation** (no external Python dependencies like `pycrowipmodule`) to ensure robust connection handling, specific command sequences (`Code` -> `Command` -> `Enter`), and accurate status parsing.
+Unlike previous solutions, this integration uses a **direct local TCP implementation** (the driver is vendored inside the integration, so no external Python dependency is installed) to ensure robust connection handling, specific command sequences (`Code` -> `Command` -> `Enter`), and accurate status parsing.
+
+## ✅ Requirements
+
+* **Home Assistant 2026.9.3 or newer** (Home Assistant 2026.9 requires Python 3.14.2+).
+* A Crow Runner 8/16 or AAP ESL-2 board with the IP Module / APP POD.
+* The panel must speak the ASCII line protocol on TCP port `5002` (the default).
 
 ## 🌟 Features
 
@@ -15,21 +17,31 @@ Unlike previous solutions, this integration uses a **direct local TCP implementa
 * Supports **Custom Bypass** (via the "Arm Custom Bypass" feature).
 * **Keypad Support:** Forces a numeric keypad in the UI to input your user code.
 * **Correct Command Sequence:** Automatically handles the required protocol sequence (e.g., `Code` + `ARM` + `Enter`).
+* Entities become **unavailable** when the TCP connection drops, instead of silently showing stale state.
 
 
 * **Binary Sensors (Zones):**
 * Supports up to 16 zones.
 * Configurable device class (Motion, Door, Window, Smoke, etc.) via the UI.
 * Real-time status updates (Open/Closed/Alarm/Tamper).
+* Zones are grouped into sub-devices (Windows / Doors / Sensors) linked to the main panel.
 
 
 * **Switches (Outputs):**
-* Control up to 2 Relays/Outputs (Output 1 & 2).
+* Control up to 8 board outputs.
+
+
+* **Buttons:**
+* **Toggle Chime**, plus **Relay 1** / **Relay 2** momentary activation.
 
 
 * **System Status:**
-* Monitors **Mains Power**, **Battery Health**, and **System Tamper**.
+* Monitors **Mains Power**, **Battery Health**, **Tamper**, **Phone Line**, **Dialler** and **Zone Battery**.
 * Handles "Power Failure" and "Low Battery" alerts correctly (no false alarms on restart).
+
+
+* **Device page:** the panel reports its firmware version, the configured host and links to `http://<host>`.
+* **Diagnostics:** downloadable from the integration page with area codes and the host redacted.
 
 
 
@@ -132,6 +144,13 @@ Add the standard **Alarm Panel** card to your dashboard.
 
 Entities will be created for `switch.relay_1` and `switch.relay_2` (if named). These can be used to toggle the PGM outputs on the board (e.g., to open a garage door).
 
+Outputs are **momentary** on the Crow protocol: turning a switch on sends the `OO<n>` command, so the board toggles its output. Two consecutive toggles within one status refresh are debounced to avoid double-triggering.
+
+### Buttons
+
+* **Toggle Chime** - toggles the panel's keypad chime.
+* **Relay 1** / **Relay 2** - briefly energise the board relays (`RL1` / `RL2`).
+
 ---
 
 ## 🛠️ Troubleshooting & Debugging
@@ -150,7 +169,7 @@ logger:
 
 **Common Issues:**
 
-* **"Connection Refused":** Ensure no other device (or previous instance of Home Assistant) is connected to the IP Module. The module usually supports only **one** active TCP connection. This is not valid any more 
+* **"Connection Refused":** Ensure no other device (or previous instance of Home Assistant) is connected to the IP Module. Older firmware only tolerated **one** active TCP connection at a time; newer firmware allows reconnects while an old socket is still winding down, and the integration retries with exponential backoff.
 * **Status not updating:** Ensure your IP Module is configured to send ASCII messages.
 * **"Unknown" state on boot:** The integration actively queries the status on connection. If the panel is busy, it might take a few seconds to sync.
 
@@ -170,6 +189,8 @@ The configuration flow is fully translated into:
 
 ## Credits
 
-Based on the `pycrowipmodule` library.
+Based on the `pycrowipmodule` library by @febalci, which the driver inside
+`custom_components/crowipmodule/pycrowipmodule/` is derived from (MIT).
 Original custom component and pypi author: @febalci.
-Refactored for Home Assistant 2025+ with Config Flow support.
+Refactored for Home Assistant 2026.9+ with Config Flow support, `entry.runtime_data`
+and a `brand/` asset directory.
