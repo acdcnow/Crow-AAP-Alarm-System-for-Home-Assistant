@@ -9,5 +9,5 @@
   "integration_type": "hub",
   "iot_class": "local_push",
   "issue_tracker": "https://github.com/acdcnow/Crow-AAP-Alarm-System-for-Home-Assistant/issues",
-  "version": "2.1.0"
+  "version": "2.1.0-beta.1"
 }

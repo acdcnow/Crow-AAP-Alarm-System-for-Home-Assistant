@@ -1,8 +1,16 @@
+<p align="center">
+  <img src="custom_components/crowipmodule/brand/logo.png" alt="Crow/AAP Alarm IP Module" width="420">
+</p>
+
 # Crow/AAP Alarm IP Module for Home Assistant
 
 This is a custom integration for **Home Assistant** to control **Crow Runner**, **AAP (Arrowhead Alarm Products)**, and compatible alarm systems equipped with the **IP Module** (ESIM/TCP) running Firmware Ver 2.10.3628 2017 Oct 20 09:48:43.
 
 Unlike previous solutions, this integration uses a **direct local TCP implementation** (the driver is vendored inside the integration, so no external Python dependency is installed) to ensure robust connection handling, specific command sequences (`Code` -> `Command` -> `Enter`), and accurate status parsing.
+
+> **Current release: `2.1.0-beta.1` (pre-release).** Targets Home Assistant 2026.9.3.
+> HACS only offers this if you enable *Show beta versions* on the integration page.
+> Users on Home Assistant 2026.8 or older should stay on `2.0.0`.
 
 ## ✅ Requirements
 

@@ -1,8 +1,9 @@
 # Changelog
 
-## [2.1.0] - Home Assistant 2026.9 compatibility
+## [2.1.0-beta.1] - 2026-09-19
 
-Targets Home Assistant **2026.9.3** (which requires Python 3.14.2+).
+**Pre-release.** Targets Home Assistant **2026.9.3** (which requires Python 3.14.2+).
+Users on Home Assistant 2026.8 or older should stay on `2.0.0`.
 
 ### 🔧 Fixed
 
