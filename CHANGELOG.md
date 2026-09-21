@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased]
+
+Documentation only - no code or behaviour change.
+
+* **Added `docs/ADD.md`** - Architectural Design Document: context, the six key architectural
+  decisions, runtime and threading view, Home Assistant 2026.9 conformance table, quality
+  attributes and a risk register.
+* **Added `docs/SDD.md`** - Software Design Document: module inventory, configuration data model,
+  signal contract, the full command/response protocol tables, driver internals, per-entity
+  specifications, config/options flow, diagnostics, error-handling policy and traceability.
+* **Added `docs/WORKFLOWS.md`** - Mermaid workflow diagrams (setup, command path, runtime data flow,
+  connection lifecycle, reload, verification, release) plus the GitDiagram architecture reference.
+* **README** now links the design documents, the wiki landing page and the GitDiagram map.
+* **Wiki rebuilt** around a landing page with release channels; the previous pages are preserved and
+  marked as archived.
+
 ## [2.1.0-beta.1] - 2026-09-19
 
 **Pre-release.** Targets Home Assistant **2026.9.3** (which requires Python 3.14.2+).

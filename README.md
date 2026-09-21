@@ -18,6 +18,26 @@ Unlike previous solutions, this integration uses a **direct local TCP implementa
 * A Crow Runner 8/16 or AAP ESL-2 board with the IP Module / APP POD.
 * The panel must speak the ASCII line protocol on TCP port `5002` (the default).
 
+## 📚 Documentation
+
+**Design documents (in this repository)**
+
+| Document | What it covers |
+|---|---|
+| [Architectural Design Document](docs/ADD.md) | Context, architectural decisions, runtime view, quality attributes, risks |
+| [Software Design Document](docs/SDD.md) | Modules, signatures, data models, protocol tables, per-entity contracts |
+| [Workflows and Diagrams](docs/WORKFLOWS.md) | Mermaid diagrams: setup, data flow, commands, connection lifecycle, release |
+
+**Wiki**
+
+| Page | Audience |
+|---|---|
+| [Home / landing page](https://github.com/acdcnow/Crow-AAP-Alarm-System-for-Home-Assistant/wiki) | Everyone - picks the right track for your version |
+| [HA 2026.09 Development Branch](https://github.com/acdcnow/Crow-AAP-Alarm-System-for-Home-Assistant/wiki/HA-2026.09-Development-Branch) | Users of the `2.1.0-beta.1` pre-release |
+| [Archived Documentation](https://github.com/acdcnow/Crow-AAP-Alarm-System-for-Home-Assistant/wiki/Archived-Documentation) | Users still on 1.x / 2.0.0 |
+
+**Interactive architecture map** - [GitDiagram](https://gitdiagram.com/acdcnow/crow-aap-alarm-system-for-home-assistant) renders the repository as a component graph. Note that it reads the **default branch** only, so it currently shows the legacy `master` architecture.
+
 ## 🌟 Features
 
 * **Alarm Control Panel:**
