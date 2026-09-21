@@ -25,8 +25,8 @@ sys.path.insert(0, str(REPO))
 FAILURES: list[str] = []
 
 
-def check(label: str, condition: bool) -> None:
-    print(f"[{'PASS' if condition else 'FAIL'}] {label}")
+def check(label: str, condition: bool, extra: str = "") -> None:
+    print(f"[{'PASS' if condition else 'FAIL'}] {label}{(' -> ' + extra) if extra and not condition else ''}")
     if not condition:
         FAILURES.append(label)
 
@@ -568,6 +568,93 @@ async def main() -> None:
         panel._info = controller.area_state[1]
         got = panel.alarm_state
         check(f"alarm_state({status or 'idle'}) -> {expected}", got == expected)
+
+    # ---------------------------------------------------------------- #
+    print("\n== Arm sequence ==")
+    # Record the wire commands instead of writing to a (absent) socket. send_keypress
+    # already appends the Enter key, so "KEYS 1234E" is "type 1234, press Enter".
+    calls: list[str] = []
+    controller.arm_away = lambda: calls.append("ARM")
+    controller.arm_stay = lambda: calls.append("STAY")
+    controller.send_keypress = lambda code: calls.append(f"KEYS {code}E")
+    controller.disarm = lambda code: calls.append(f"DISARM {code}")
+
+    panel_a, panel_b = collected[0], collected[1]  # area 1 has code 1234, area 2 has none
+
+    def make_panel(sequence: str, code: str = "1234"):
+        return alarm_control_panel.CrowAlarmPanel(
+            controller, "192.168.1.50", "entry-1", 1, "House", code, True,
+            "Ver 2.10.3628 2017", arm_sequence=sequence,
+        )
+
+    check(
+        "panel defaults to command_then_keypad",
+        panel_a._arm_sequence == "command_then_keypad",
+        str(panel_a._arm_sequence),
+    )
+
+    calls.clear()
+    await panel_a.async_alarm_arm_away()
+    check("arm away (keypad mode) -> ARM then KEYS 1234E", calls == ["ARM", "KEYS 1234E"], str(calls))
+
+    calls.clear()
+    await panel_a.async_alarm_arm_home()
+    check("arm home (keypad mode) -> STAY then KEYS 1234E", calls == ["STAY", "KEYS 1234E"], str(calls))
+
+    calls.clear()
+    await panel_a.async_alarm_arm_away("4321")
+    check("a supplied code overrides the stored code", calls == ["ARM", "KEYS 4321E"], str(calls))
+
+    command_only = make_panel("command_only")
+    calls.clear()
+    await command_only.async_alarm_arm_away()
+    await command_only.async_alarm_arm_home()
+    check("command_only sends the bare arm commands", calls == ["ARM", "STAY"], str(calls))
+
+    calls.clear()
+    await panel_b.async_alarm_arm_away()
+    check("no code configured -> command only, no keypress", calls == ["ARM"], str(calls))
+
+    calls.clear()
+    await panel_a.async_alarm_disarm()
+    check("disarm uses the stored code", calls == ["DISARM 1234"], str(calls))
+
+    calls.clear()
+    await panel_a.async_alarm_disarm("9876")
+    check("disarm uses the supplied code", calls == ["DISARM 9876"], str(calls))
+
+    calls.clear()
+    await panel_b.async_alarm_disarm()
+    check("disarm without any code sends nothing", calls == [], str(calls))
+
+    # The platform (not just the constructor) must resolve the configured mode.
+    entry.data["arm_sequence"] = "command_only"
+    collected.clear()
+    await alarm_control_panel.async_setup_entry(hass, entry, collector)
+    check(
+        "platform reads arm_sequence from entry.data",
+        collected[0]._arm_sequence == "command_only",
+        str(collected[0]._arm_sequence),
+    )
+
+    entry.options["arm_sequence"] = "command_then_keypad"
+    collected.clear()
+    await alarm_control_panel.async_setup_entry(hass, entry, collector)
+    check(
+        "entry.options wins over entry.data",
+        collected[0]._arm_sequence == "command_then_keypad",
+        str(collected[0]._arm_sequence),
+    )
+
+    del entry.data["arm_sequence"]
+    del entry.options["arm_sequence"]
+    collected.clear()
+    await alarm_control_panel.async_setup_entry(hass, entry, collector)
+    check(
+        "falls back to the default arm sequence",
+        collected[0]._arm_sequence == crow_const.DEFAULT_ARM_SEQUENCE,
+        str(collected[0]._arm_sequence),
+    )
 
     print("\n== Switch + button + sensor wiring ==")
     collected.clear()

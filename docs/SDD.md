@@ -49,6 +49,7 @@ Written once by `CrowConfigFlow.async_step_user`; changed later through the opti
 | `number_of_areas` | `CONF_NUM_AREAS` | `int` | `2` | 1–`MAX_AREAS` (2) |
 | `number_of_zones` | `CONF_NUM_ZONES` | `int` | `7` | 1–`MAX_ZONES` (16) |
 | `number_of_outputs` | `CONF_NUM_OUTPUTS` | `int` | `2` | 0–`MAX_OUTPUTS` (8) |
+| `arm_sequence` | `CONF_ARM_SEQUENCE` | `str` | `"command_then_keypad"` | One of `ARM_SEQUENCES`; see §7.1 |
 
 ### 2.2 `entry.options` — user-facing names and codes
 
@@ -422,10 +423,26 @@ classDiagram
 
 `extra_state_attributes` returns the raw `status` dict for debugging.
 
-**Commands** — `arm_away()` / `arm_stay()` send the bare command only. **No code follow-up:**
-sending a `KEYS` line after an arm would be interpreted as a disarm and cancel it.
-`async_alarm_disarm(code)` prefers the supplied code, else the stored one, and issues `KEYS <code>E`
-followed by `STATUS`. `async_alarm_trigger()` sends `PANIC`.
+**Arming.** `async_alarm_arm_away()` / `async_alarm_arm_home()` delegate to the shared
+`CrowAlarmPanel._async_arm(*, stay, code)`, which honours the `arm_sequence` option:
+
+| `arm_sequence` | Wire sequence | Rationale |
+|---|---|---|
+| `command_then_keypad` (default) | `ARM ` (or `STAY `) then `KEYS <code>E` | The panel only arms once the code and Enter have been entered. Matches `2.0.0`. |
+| `command_only` | `ARM ` (or `STAY `) only | The panel arms immediately, and a following code press would be read as a disarm. |
+
+`<code>` is the `code` argument when the caller supplies one, otherwise the area code from the area
+options. `send_keypress(code)` writes `KEYS <code>E`, where the trailing `E` is the ENTER key, so a
+single keypress line is the keypad equivalent of typing the code and pressing Enter. That is why the
+same wire format serves both "finish arming" and "disarm" — the panel decides from its current
+state. If `command_then_keypad` is selected but no code is available, the arm command is still sent
+and a warning is logged.
+
+**Disarming** is always keypad style, independent of `arm_sequence`: `async_alarm_disarm(code)`
+prefers the supplied code, else the stored one, and issues `KEYS <code>E` followed by `STATUS`. With
+no code available it logs an error and sends nothing, rather than emitting a digit-less `KEYS E`.
+
+`async_alarm_trigger()` sends `PANIC`.
 
 ### 7.2 `binary_sensor.py`
 
@@ -535,7 +552,7 @@ stateDiagram-v2
 
 | Step | Fields |
 |---|---|
-| `user` | `host`, `port`, `keepalive_interval`, `timeout`, `firmware_version`, `number_of_areas`, `number_of_outputs`, `number_of_zones` |
+| `user` | `host`, `port`, `keepalive_interval`, `timeout`, `firmware_version`, `arm_sequence`, `number_of_areas`, `number_of_outputs`, `number_of_zones` |
 | `areas` | `area_{i}_name` (required), `area_{i}_code` (optional) for `i = 1..number_of_areas` |
 | `outputs` | `output_{i}_name` for `i = 1..number_of_outputs` (skipped entirely when the count is 0) |
 | `zones` | `zone_{i}_name`, `zone_{i}_type` for the current 4-zone page |
@@ -550,8 +567,12 @@ module is reachable.
 Firmware date is derived on submit:
 `self._data[CONF_FW_DATE] = FIRMWARE_PROFILES.get(selected_version, "unknown")`.
 
-`async_step_import` exists but is **unreachable**: no `CONFIG_SCHEMA` is defined, so a YAML block
-cannot trigger an import (ADD RISK-4).
+`arm_sequence` is rendered by `_arm_sequence_selector()` — a `SelectSelector` with
+`translation_key="arm_sequence"` — so the option labels come from the
+`selector.arm_sequence.options` section of the translation files rather than from raw identifiers.
+
+There is **no `async_step_import`**: no `CONFIG_SCHEMA` is defined, so a YAML block cannot trigger an
+import (ADD RISK-4).
 
 ### 8.2 Options flow — `CrowOptionsFlowHandler`
 
@@ -567,6 +588,10 @@ re-derives `firmware_date` when the firmware selection changes. Finishing the fl
 (asserted by `tests/verify_config_flow.py`). `de`, `es`, `fr`, `it` cover every step.
 `tests/verify_config_flow.py` also asserts that **every field the flows render has a label**, which
 is how the earlier `strings.json`/`en.json` drift was found.
+
+Every selector that carries a `translation_key` needs a matching top-level `selector` block. The
+`arm_sequence` dropdown is the first one, and the harness asserts that all five languages translate
+**every** value of `ARM_SEQUENCES`, not just the block itself.
 
 ---
 
@@ -615,6 +640,8 @@ logger:
 | Handlers / callbacks | Wrapped in `try/except`, logged, never propagate (protects the worker thread) |
 | Command send | Failure closes the socket so the supervisor reconnects |
 | Entity commands | Wrapped in `try/except` with `_LOGGER.error`; entities never raise to the service call |
+| Arming without a code | Keypad mode still sends the arm command and logs a warning; `arm_sequence` resolution never raises |
+| Disarming without a code | Logs an error and sends nothing (a digit-less `KEYS E` is meaningless) |
 | Setup | Constructor failure → `False`. Probe failure → form error, no entry created |
 | Unload | Must not raise; guards a missing `runtime_data` |
 
@@ -627,8 +654,8 @@ Home Assistant 2026.9 requires **Python 3.14.2+**, so the test story is delibera
 | Layer | Artefact | Runs with | Covers |
 |---|---|---|---|
 | Protocol | `test_crow_protocol.py` | bare Python | Command wire formats, RX parsing, state handlers, a real loopback socket end-to-end |
-| HA contract | `tests/verify_ha_2026_contract.py` | bare Python + stubs | Every platform's `async_setup_entry`; asserts no `via_device` in any `device_info`, zone `via_device_id == hub id`, `alarm_state` for all seven states, `configuration_url` sanitising, availability wiring |
-| Config flow | `tests/verify_config_flow.py` | bare Python + `voluptuous` | Full 5-step flow, pagination, options flow, translation coverage for all fields and languages |
+| HA contract | `tests/verify_ha_2026_contract.py` | bare Python + stubs | Every platform's `async_setup_entry`; asserts no `via_device` in any `device_info`, zone `via_device_id == hub id`, `alarm_state` for all seven states, the emitted wire sequence for **both** `arm_sequence` modes (including the `KEYS <code>E` follow-up and the disarm path), option precedence over `entry.data`, `configuration_url` sanitising, availability wiring |
+| Config flow | `tests/verify_config_flow.py` | bare Python + `voluptuous` | Full 5-step flow, pagination, options flow, translation coverage for all fields and languages, and the `arm_sequence` selector (options offered, translation key, rejection of unknown values) |
 | Static | `python -m compileall custom_components` | bare Python | Syntax across the integration |
 
 The stubs reproduce the **real** 2026.9.3 definitions that matter (`DeviceInfo` as `total=False` with

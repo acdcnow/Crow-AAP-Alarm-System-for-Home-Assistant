@@ -1,4 +1,12 @@
 {
+  "selector": {
+    "arm_sequence": {
+      "options": {
+        "command_only": "Command only (panel arms immediately)",
+        "command_then_keypad": "Command, then code + Enter (panel waits for the code)"
+      }
+    }
+  },
   "config": {
     "step": {
       "user": {
@@ -13,7 +21,8 @@
           "timeout": "Timeout",
           "number_of_areas": "Number of Areas",
           "number_of_zones": "Number of Zones",
-          "number_of_outputs": "Number of Outputs"
+          "number_of_outputs": "Number of Outputs",
+          "arm_sequence": "Arm Sequence"
         }
       },
       "areas": {
@@ -79,7 +88,8 @@
           "timeout": "Timeout",
           "number_of_areas": "Areas",
           "number_of_zones": "Zones",
-          "number_of_outputs": "Outputs"
+          "number_of_outputs": "Outputs",
+          "arm_sequence": "Arm Sequence"
         }
       },
       "areas": {

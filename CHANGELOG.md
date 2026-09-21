@@ -2,7 +2,26 @@
 
 ## [Unreleased]
 
-Documentation only - no code or behaviour change.
+### 🔧 Fixed
+
+* **Arming now completes on panels that wait for the user code.**
+  `async_alarm_arm_away` / `async_alarm_arm_home` sent only `ARM ` / `STAY ` and never
+  followed up with the code, so a panel programmed to expect *ARM, then code, then Enter*
+  stayed disarmed. Arming now sends the arm command and then `KEYS <code>E` - the trailing
+  `E` is the Enter key - which is what `2.0.0` did.
+* **Disarming without a code no longer sends a bare `KEYS E`.** It now logs an error and
+  does nothing instead of emitting a keypress with no digits.
+
+### ✨ Added
+
+* **New `Arm Sequence` option** (`arm_sequence`), offered in the setup wizard and the options
+  flow and translated into all five supported languages:
+  * `command_then_keypad` (**default**, matches `2.0.0`) - send `ARM ` / `STAY `, then
+    `KEYS <code>E`.
+  * `command_only` - send only `ARM ` / `STAY `, for panels that arm immediately and read a
+    subsequent code press as a disarm.
+
+### 📝 Documentation
 
 * **Added `docs/ADD.md`** - Architectural Design Document: context, the six key architectural
   decisions, runtime and threading view, Home Assistant 2026.9 conformance table, quality
@@ -12,7 +31,8 @@ Documentation only - no code or behaviour change.
   specifications, config/options flow, diagnostics, error-handling policy and traceability.
 * **Added `docs/WORKFLOWS.md`** - Mermaid workflow diagrams (setup, command path, runtime data flow,
   connection lifecycle, reload, verification, release) plus the GitDiagram architecture reference.
-* **README** now links the design documents, the wiki landing page and the GitDiagram map.
+* **README** now links the design documents, the wiki landing page and the GitDiagram map, and
+  documents the arm sequence option.
 * **Wiki rebuilt** around a landing page with release channels; the previous pages are preserved and
   marked as archived.
 

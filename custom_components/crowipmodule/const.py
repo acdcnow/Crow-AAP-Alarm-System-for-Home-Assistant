@@ -10,6 +10,20 @@ CONF_OUTPUTS = "outputs"
 CONF_FW_VERSION = "firmware_version"
 CONF_FW_DATE = "firmware_date"
 
+# Arming
+# There is no single "arm with code" command in the Crow protocol. Depending on the
+# panel firmware and how it is programmed, either the bare ARM/STAY command completes
+# the arming, or the panel then waits for the user code followed by the Enter key.
+# Which one applies is a per-entry option.
+CONF_ARM_SEQUENCE = "arm_sequence"
+ARM_SEQUENCE_COMMAND_ONLY = "command_only"
+ARM_SEQUENCE_COMMAND_THEN_KEYPAD = "command_then_keypad"
+ARM_SEQUENCES = [ARM_SEQUENCE_COMMAND_ONLY, ARM_SEQUENCE_COMMAND_THEN_KEYPAD]
+# 2.0.0 and earlier always sent the code after the arm command, so that behaviour stays
+# the default. Panels that arm on the bare command should select ARM_SEQUENCE_COMMAND_ONLY,
+# because there the code + Enter is interpreted as a disarm.
+DEFAULT_ARM_SEQUENCE = ARM_SEQUENCE_COMMAND_THEN_KEYPAD
+
 # Firmware Profiles (Version -> Date)
 FIRMWARE_PROFILES = {
     "Ver 2.10.3628 2017": "Oct 20 09:48:43",

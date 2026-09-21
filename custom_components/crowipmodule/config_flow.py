@@ -7,8 +7,12 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.const import CONF_HOST, CONF_PORT, CONF_TIMEOUT
+from homeassistant.helpers import selector
 
 from .const import (
+    ARM_SEQUENCES,
+    CONF_ARM_SEQUENCE,
+    DEFAULT_ARM_SEQUENCE,
     DOMAIN,
     DEFAULT_PORT,
     DEFAULT_TIMEOUT,
@@ -40,6 +44,20 @@ ZONE_TYPES = [
 ]
 
 PAGE_SIZE = 4
+
+
+def _arm_sequence_selector() -> selector.SelectSelector:
+    """Dropdown for how the panel is armed (see const.CONF_ARM_SEQUENCE).
+
+    The option labels are translated through ``selector.arm_sequence.options`` in
+    strings.json / translations.
+    """
+    return selector.SelectSelector(
+        selector.SelectSelectorConfig(
+            options=ARM_SEQUENCES,
+            translation_key=CONF_ARM_SEQUENCE,
+        )
+    )
 
 
 def _test_connection(host: str, port: int, timeout: float) -> bool:
@@ -99,7 +117,9 @@ class CrowConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             vol.Optional(CONF_TIMEOUT, default=DEFAULT_TIMEOUT): int,
             
             vol.Required(CONF_FW_VERSION, default=DEFAULT_FW_VERSION): vol.In(fw_options),
-            
+
+            vol.Required(CONF_ARM_SEQUENCE, default=DEFAULT_ARM_SEQUENCE): _arm_sequence_selector(),
+
             vol.Required(CONF_NUM_AREAS, default=DEFAULT_NUM_AREAS): vol.All(vol.Coerce(int), vol.Range(min=1, max=MAX_AREAS)),
             vol.Required(CONF_NUM_OUTPUTS, default=DEFAULT_NUM_OUTPUTS): vol.All(vol.Coerce(int), vol.Range(min=0, max=MAX_OUTPUTS)),
             vol.Required(CONF_NUM_ZONES, default=DEFAULT_NUM_ZONES): vol.All(vol.Coerce(int), vol.Range(min=1, max=MAX_ZONES)),
@@ -218,6 +238,7 @@ class CrowOptionsFlowHandler(config_entries.OptionsFlow):
         c_outputs = data.get(CONF_NUM_OUTPUTS, len(options.get(CONF_OUTPUTS, {})) or DEFAULT_NUM_OUTPUTS)
         
         current_fw = data.get(CONF_FW_VERSION, DEFAULT_FW_VERSION)
+        current_arm_sequence = data.get(CONF_ARM_SEQUENCE, DEFAULT_ARM_SEQUENCE)
         fw_options = list(FIRMWARE_PROFILES.keys())
 
         schema = vol.Schema({
@@ -227,6 +248,8 @@ class CrowOptionsFlowHandler(config_entries.OptionsFlow):
             vol.Optional(CONF_TIMEOUT, default=data.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)): int,
             
             vol.Required(CONF_FW_VERSION, default=current_fw): vol.In(fw_options),
+
+            vol.Required(CONF_ARM_SEQUENCE, default=current_arm_sequence): _arm_sequence_selector(),
 
             vol.Required(CONF_NUM_AREAS, default=c_areas): vol.All(vol.Coerce(int), vol.Range(min=1, max=MAX_AREAS)),
             vol.Required(CONF_NUM_OUTPUTS, default=c_outputs): vol.All(vol.Coerce(int), vol.Range(min=0, max=MAX_OUTPUTS)),

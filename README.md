@@ -143,6 +143,8 @@ This integration uses the Home Assistant **Config Flow** (UI). No YAML configura
 * **Port:** Usually `5002`.
 * **Keep Alive:** Default `60` seconds.
 * **Timeout:** Default `10` seconds.
+* **Arm Sequence:** How the panel expects to be armed. Leave the default unless arming does
+  nothing - see [Arming Sequence](#arming-sequence).
 
 ---
 
@@ -152,21 +154,45 @@ This integration uses the Home Assistant **Config Flow** (UI). No YAML configura
 
 Add the standard **Alarm Panel** card to your dashboard.
 
-* **To Arm:**
-1. Enter your User Code on the keypad.
-2. Press **Arm Away** or **Arm Home**.
-
-
-* **To Disarm:**
-1. Enter your User Code.
-2. Press **Disarm**.
-
+* **To Arm:** Press **Arm Away** or **Arm Home**. If no code is stored for the area, Home
+  Assistant asks for one first; otherwise the stored code is sent automatically.
+* **To Disarm:** Press **Disarm** and enter your user code (again, unless a code is stored
+  for the area).
+* **To Trigger:** Press **Trigger** to raise a panic alarm (`PANIC`).
 
 * **To Bypass:**
 1. Enter your User Code.
 2. Press **Bypass** (found under "Arm Custom Bypass" or via service call).
 
 
+
+### Arming Sequence
+
+The Crow protocol has no single "arm with code" command. Depending on the firmware and how
+the panel is programmed, either
+
+* the bare `ARM` / `STAY` command completes the arming, or
+* the panel sends `ARM` / `STAY` and then **waits for the user code followed by Enter**.
+
+Select the matching behaviour with the **Arm Sequence** option, under
+**Settings > Devices & Services > Crow/AAP Alarm IP Module > Configure** (it is also the last
+step of the setup wizard).
+
+| Option | Arm Away sends | Arm Home sends | Use when |
+| --- | --- | --- | --- |
+| **Command, then code + Enter** (default) | `ARM ` then `KEYS <code>E` | `STAY ` then `KEYS <code>E` | The panel waits for your code before it arms. This matches the behaviour of `2.0.0`. |
+| **Command only** | `ARM ` | `STAY ` | The panel arms immediately on the command, and a following code press would cancel the arming. |
+
+The trailing `E` in `KEYS <code>E` is the **Enter** key, so the sequence above is the keypad
+equivalent of typing your code and pressing Enter. No separate Enter button is required.
+
+**Disarming** is always keypad style - the code followed by Enter (`KEYS <code>E`, then
+`STATUS `) - regardless of the selected arm sequence.
+
+> [!NOTE]
+> If **Command, then code + Enter** is selected but the area has no code stored, only the arm
+> command is sent and a warning is written to the log. Store the area code, or switch to
+> **Command only**.
 
 ### Switches
 
@@ -200,6 +226,11 @@ logger:
 * **"Connection Refused":** Ensure no other device (or previous instance of Home Assistant) is connected to the IP Module. Older firmware only tolerated **one** active TCP connection at a time; newer firmware allows reconnects while an old socket is still winding down, and the integration retries with exponential backoff.
 * **Status not updating:** Ensure your IP Module is configured to send ASCII messages.
 * **"Unknown" state on boot:** The integration actively queries the status on connection. If the panel is busy, it might take a few seconds to sync.
+* **Arming does nothing:** The panel is waiting for your user code. Set **Arm Sequence** to
+  **Command, then code + Enter** and make sure the area has a code stored - see
+  [Arming Sequence](#arming-sequence).
+* **The panel disarms instead of arming:** Set **Arm Sequence** to **Command only**. On these
+  panels the code press that follows the arm command is read as a disarm.
 
 ---
 

@@ -361,7 +361,7 @@ released at unload.
 | RISK-1 | Unique IDs for zones/sensors/outputs/buttons are global (`crow_zone_1`), not entry-scoped. Two IP Modules collide; HA logs *"ID already used by … - ignoring"* | Multi-panel users lose entities | **Open.** Needs a migration (new IDs orphan existing entities). The alarm panel is already scoped as `{entry_id}_crow_area_N`. |
 | RISK-2 | Setup blocks ~4 s (`asyncio.sleep(2.0)` twice) | Slow startup | **Open, accepted.** Workaround for the panel's single-socket behaviour; could be replaced by an active readiness probe. |
 | RISK-3 | `_is_connected` is read from several threads without a lock | Theoretically stale reads | **Low.** CPython attribute assignment is atomic; a lock is planned. |
-| RISK-4 | `async_step_import` is unreachable — no `CONFIG_SCHEMA` exists, so YAML can never trigger the import | Dead code | **Open.** UI-based code is always created directly by the user. |
+| RISK-4 | No `async_step_import` exists and no `CONFIG_SCHEMA` is defined, so the integration cannot be configured from YAML | Nothing to migrate; no YAML path at all | **Accepted.** UI-based code is always created directly by the user. |
 | RISK-5 | Vendored driver will drift from upstream | Missing upstream fixes | **Accepted** by DEC-1; upstream is effectively dormant. |
 | RISK-6 | `hacs.json` pins `homeassistant: 2026.9.3`, so this release will not install on 2026.8 | Blocks older installs | **Deliberate** for the pre-release; lower to `2026.8` before promoting to stable. |
 | RISK-7 | No live-hardware CI | Regressions only surface with a real panel | Mitigated by the protocol self-test and stub harnesses. |

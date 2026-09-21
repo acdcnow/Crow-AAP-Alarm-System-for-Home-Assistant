@@ -49,6 +49,14 @@ def check(label: str, condition: bool, extra: str = "") -> None:
         FAILURES.append(label)
 
 
+def _rejects(validator, value) -> bool:
+    try:
+        validator(value)
+    except vol.Invalid:
+        return True
+    return False
+
+
 def mod(name: str) -> types.ModuleType:
     m = types.ModuleType(name)
     sys.modules[name] = m
@@ -174,6 +182,33 @@ ha_core.HomeAssistant = type("HomeAssistant", (), {})
 ha_helpers = mod("homeassistant.helpers")
 ha_helpers.__path__ = []
 ha.helpers = ha_helpers
+
+
+# Minimal stand-in for homeassistant.helpers.selector. It records the config so
+# the harness can assert the translation key and the offered options, and it
+# validates like the real selector so a bad payload is rejected here too.
+class SelectSelectorConfig:
+    def __init__(self, *, options, translation_key=None, **kwargs):
+        self.options = list(options)
+        self.translation_key = translation_key
+        self.extra = kwargs
+
+
+class SelectSelector:
+    def __init__(self, config):
+        self.config = config
+
+    def __call__(self, value):
+        if value not in self.config.options:
+            raise vol.Invalid(f"{value!r} is not a valid option")
+        return value
+
+
+sel = mod("homeassistant.helpers.selector")
+sel.SelectSelector = SelectSelector
+sel.SelectSelectorConfig = SelectSelectorConfig
+ha_helpers.selector = sel
+
 dr = mod("homeassistant.helpers.device_registry")
 dr.DeviceInfo = dict
 dr.async_get = lambda hass: None
@@ -203,6 +238,14 @@ def translation_keys(section: str, step: str) -> set[str]:
     return set(STRINGS.get(section, {}).get("step", {}).get(step, {}).get("data", {}).keys())
 
 
+def validator_for(schema: vol.Schema, key: str):
+    """Return the validator declared for ``key`` in a schema, or None."""
+    for marker, value in schema.schema.items():
+        if str(getattr(marker, "schema", marker)) == key:
+            return value
+    return None
+
+
 async def drive_config_flow() -> dict:
     flow = cf.CrowConfigFlow()
     flow.hass = types.SimpleNamespace(
@@ -218,7 +261,8 @@ async def drive_config_flow() -> dict:
     check(
         "user step has all connection keys",
         {"host", "port", "keepalive_interval", "timeout", "firmware_version",
-         "number_of_areas", "number_of_zones", "number_of_outputs"} <= set(user_keys),
+         "number_of_areas", "number_of_zones", "number_of_outputs",
+         "arm_sequence"} <= set(user_keys),
         str(user_keys),
     )
     check(
@@ -227,12 +271,38 @@ async def drive_config_flow() -> dict:
         str(set(user_keys) - translation_keys("config", "user")),
     )
 
+    arm_selector = validator_for(result["data_schema"], "arm_sequence")
+    check(
+        "arm_sequence renders as a select selector",
+        isinstance(arm_selector, SelectSelector),
+        type(arm_selector).__name__,
+    )
+    check(
+        "arm_sequence selector offers every supported mode",
+        sorted(arm_selector.config.options) == sorted(cf.ARM_SEQUENCES),
+        str(arm_selector.config.options),
+    )
+    check(
+        "arm_sequence selector uses a translation key",
+        arm_selector.config.translation_key == "arm_sequence",
+        str(arm_selector.config.translation_key),
+    )
+    check(
+        "arm_sequence rejects an unknown mode",
+        _rejects(arm_selector, "not_a_mode"),
+    )
+    check(
+        "arm_sequence accepts both documented modes",
+        all(arm_selector(mode) == mode for mode in cf.ARM_SEQUENCES),
+    )
+
     payload = {
         "host": "192.168.1.50",
         "port": 5002,
         "keepalive_interval": 300,
         "timeout": 10,
         "firmware_version": "Ver 2.10.3628 2017",
+        "arm_sequence": "command_then_keypad",
         "number_of_areas": 2,
         "number_of_outputs": 2,
         "number_of_zones": 5,
@@ -324,6 +394,12 @@ async def main() -> None:
     check("area options stored", created["options"]["areas"]["1"]["name"] == "House")
     check("output options stored", created["options"]["outputs"]["2"]["name"] == "Siren")
     check("zone options stored", created["options"]["zones"]["4"]["type"] == "smoke")
+    check("arm sequence stored in entry.data",
+          created["data"].get("arm_sequence") == "command_then_keypad",
+          str(created["data"].get("arm_sequence")))
+    check("default arm sequence is command then keypad",
+          cf.DEFAULT_ARM_SEQUENCE == "command_then_keypad",
+          str(cf.DEFAULT_ARM_SEQUENCE))
 
     print("\n== Options flow ==")
     await drive_options_flow(created)
@@ -331,6 +407,14 @@ async def main() -> None:
     print("\n== Translation file parity ==")
     en = json.loads((INTEGRATION / "crowipmodule" / "translations" / "en.json").read_text(encoding="utf-8"))
     check("translations/en.json matches strings.json", en == STRINGS)
+
+    option_labels = STRINGS.get("selector", {}).get("arm_sequence", {}).get("options", {})
+    check(
+        "strings.json labels every arm sequence option",
+        set(option_labels) == set(cf.ARM_SEQUENCES) and all(option_labels.values()),
+        str(option_labels),
+    )
+
     for lang in ("de", "es", "fr", "it"):
         data = json.loads(
             (INTEGRATION / "crowipmodule" / "translations" / f"{lang}.json").read_text(encoding="utf-8")
@@ -342,6 +426,18 @@ async def main() -> None:
             if step not in data.get(section, {}).get("step", {})
         }
         check(f"{lang}.json covers every step", not missing, str(missing))
+
+        lang_options = data.get("selector", {}).get("arm_sequence", {}).get("options", {})
+        check(
+            f"{lang}.json translates every arm sequence option",
+            set(lang_options) == set(cf.ARM_SEQUENCES) and all(lang_options.values()),
+            str(lang_options),
+        )
+        check(
+            f"{lang}.json labels the arm_sequence field in both steps",
+            "arm_sequence" in data.get("config", {}).get("step", {}).get("user", {}).get("data", {})
+            and "arm_sequence" in data.get("options", {}).get("step", {}).get("init", {}).get("data", {}),
+        )
 
 
 if __name__ == "__main__":
