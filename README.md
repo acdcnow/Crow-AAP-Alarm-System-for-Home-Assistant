@@ -8,7 +8,7 @@ This is a custom integration for **Home Assistant** to control **Crow Runner**, 
 
 Unlike previous solutions, this integration uses a **direct local TCP implementation** (the driver is vendored inside the integration, so no external Python dependency is installed) to ensure robust connection handling, specific command sequences (`Code` -> `Command` -> `Enter`), and accurate status parsing.
 
-> **Current release: `2.1.0-beta.1` (pre-release).** Targets Home Assistant 2026.9.3.
+> **Current release: `2.1.0-beta.2` (pre-release).** Targets Home Assistant 2026.9.3.
 > HACS only offers this if you enable *Show beta versions* on the integration page.
 > Users on Home Assistant 2026.8 or older should stay on `2.0.0`.
 
@@ -33,7 +33,7 @@ Unlike previous solutions, this integration uses a **direct local TCP implementa
 | Page | Audience |
 |---|---|
 | [Home / landing page](https://github.com/acdcnow/Crow-AAP-Alarm-System-for-Home-Assistant/wiki) | Everyone - picks the right track for your version |
-| [HA 2026.09 Development Branch](https://github.com/acdcnow/Crow-AAP-Alarm-System-for-Home-Assistant/wiki/HA-2026.09-Development-Branch) | Users of the `2.1.0-beta.1` pre-release |
+| [HA 2026.09 Development Branch](https://github.com/acdcnow/Crow-AAP-Alarm-System-for-Home-Assistant/wiki/HA-2026.09-Development-Branch) | Users of the `2.1.0-beta.2` pre-release |
 | [Archived Documentation](https://github.com/acdcnow/Crow-AAP-Alarm-System-for-Home-Assistant/wiki/Archived-Documentation) | Users still on 1.x / 2.0.0 |
 
 **Interactive architecture map** - [GitDiagram](https://gitdiagram.com/acdcnow/crow-aap-alarm-system-for-home-assistant) renders the repository as a component graph. Note that it reads the **default branch** only, so it currently shows the legacy `master` architecture.

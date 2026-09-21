@@ -1,16 +1,23 @@
 # Changelog
 
-## [Unreleased]
+## [2.1.0-beta.2] - 2026-09-21
+
+**Pre-release.** Targets Home Assistant **2026.9.3** (which requires Python 3.14.2+).
+Users on Home Assistant 2026.8 or older should stay on `2.0.0`.
+
+Restores arming on panels that expect the user code after the arm command, and makes that
+behaviour configurable - `2.1.0-beta.1` could not arm such a panel at all.
 
 ### 🔧 Fixed
 
-* **Arming now completes on panels that wait for the user code.**
-  `async_alarm_arm_away` / `async_alarm_arm_home` sent only `ARM ` / `STAY ` and never
-  followed up with the code, so a panel programmed to expect *ARM, then code, then Enter*
-  stayed disarmed. Arming now sends the arm command and then `KEYS <code>E` - the trailing
-  `E` is the Enter key - which is what `2.0.0` did.
-* **Disarming without a code no longer sends a bare `KEYS E`.** It now logs an error and
-  does nothing instead of emitting a keypress with no digits.
+* **Arming now completes on panels that wait for the user code.** `async_alarm_arm_away` /
+  `async_alarm_arm_home` sent only `ARM ` / `STAY ` and never followed up with the code, so a
+  panel programmed to expect *ARM, then code, then Enter* stayed disarmed. Arming now sends the
+  arm command and then `KEYS <code>E` - the trailing `E` is the Enter key - which is what
+  `2.0.0` did. `send_keypress()` and `disarm()` produce the same wire line, which is why the
+  follow-up had been mistaken for a disarm.
+* **Disarming without a code no longer sends a bare `KEYS E`.** It now logs an error and does
+  nothing instead of emitting a keypress with no digits.
 
 ### ✨ Added
 
@@ -35,6 +42,13 @@
   documents the arm sequence option.
 * **Wiki rebuilt** around a landing page with release channels; the previous pages are preserved and
   marked as archived.
+
+### 🧪 Verification
+
+Both stub-HA harnesses cover the new option: `tests/verify_ha_2026_contract.py` asserts the emitted
+wire sequence for both modes (including the `KEYS <code>E` follow-up, the disarm path and option
+precedence over `entry.data`); `tests/verify_config_flow.py` asserts the selector's options, its
+translation key and that every language translates every mode.
 
 ## [2.1.0-beta.1] - 2026-09-19
 
