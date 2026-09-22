@@ -1,4 +1,12 @@
 {
+  "selector": {
+    "arm_sequence": {
+      "options": {
+        "command_only": "Nur Befehl (Anlage schaltet sofort scharf)",
+        "command_then_keypad": "Befehl, dann Code + Enter (Anlage wartet auf den Code)"
+      }
+    }
+  },
   "config": {
     "step": {
       "user": {
@@ -13,7 +21,8 @@
           "timeout": "Timeout",
           "number_of_areas": "Anzahl Bereiche",
           "number_of_zones": "Anzahl Zonen",
-          "number_of_outputs": "Anzahl Ausgänge"
+          "number_of_outputs": "Anzahl Ausgänge",
+          "arm_sequence": "Scharfschalt-Sequenz"
         }
       },
       "areas": {
@@ -79,7 +88,8 @@
           "timeout": "Timeout",
           "number_of_areas": "Anzahl Bereiche",
           "number_of_zones": "Anzahl Zonen",
-          "number_of_outputs": "Anzahl Ausgänge"
+          "number_of_outputs": "Anzahl Ausgänge",
+          "arm_sequence": "Scharfschalt-Sequenz"
         }
       },
       "areas": {

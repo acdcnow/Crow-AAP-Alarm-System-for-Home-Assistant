@@ -3,3 +3,5 @@ __pycache__/
 *.pyo
 .pytest_cache/
 
+tests/vendor/
+*.egg-info/

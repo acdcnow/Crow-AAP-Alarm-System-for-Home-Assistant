@@ -1,5 +1,106 @@
 # Changelog
 
+## [2.1.0-beta.2] - 2026-09-21
+
+**Pre-release.** Targets Home Assistant **2026.9.3** (which requires Python 3.14.2+).
+Users on Home Assistant 2026.8 or older should stay on `2.0.0`.
+
+Restores arming on panels that expect the user code after the arm command, and makes that
+behaviour configurable - `2.1.0-beta.1` could not arm such a panel at all.
+
+### 🔧 Fixed
+
+* **Arming now completes on panels that wait for the user code.** `async_alarm_arm_away` /
+  `async_alarm_arm_home` sent only `ARM ` / `STAY ` and never followed up with the code, so a
+  panel programmed to expect *ARM, then code, then Enter* stayed disarmed. Arming now sends the
+  arm command and then `KEYS <code>E` - the trailing `E` is the Enter key - which is what
+  `2.0.0` did. `send_keypress()` and `disarm()` produce the same wire line, which is why the
+  follow-up had been mistaken for a disarm.
+* **Disarming without a code no longer sends a bare `KEYS E`.** It now logs an error and does
+  nothing instead of emitting a keypress with no digits.
+
+### ✨ Added
+
+* **New `Arm Sequence` option** (`arm_sequence`), offered in the setup wizard and the options
+  flow and translated into all five supported languages:
+  * `command_then_keypad` (**default**, matches `2.0.0`) - send `ARM ` / `STAY `, then
+    `KEYS <code>E`.
+  * `command_only` - send only `ARM ` / `STAY `, for panels that arm immediately and read a
+    subsequent code press as a disarm.
+
+### 📝 Documentation
+
+* **Added `docs/ADD.md`** - Architectural Design Document: context, the six key architectural
+  decisions, runtime and threading view, Home Assistant 2026.9 conformance table, quality
+  attributes and a risk register.
+* **Added `docs/SDD.md`** - Software Design Document: module inventory, configuration data model,
+  signal contract, the full command/response protocol tables, driver internals, per-entity
+  specifications, config/options flow, diagnostics, error-handling policy and traceability.
+* **Added `docs/WORKFLOWS.md`** - Mermaid workflow diagrams (setup, command path, runtime data flow,
+  connection lifecycle, reload, verification, release) plus the GitDiagram architecture reference.
+* **README** now links the design documents, the wiki landing page and the GitDiagram map, and
+  documents the arm sequence option.
+* **Wiki rebuilt** around a landing page with release channels; the previous pages are preserved and
+  marked as archived.
+
+### 🧪 Verification
+
+Both stub-HA harnesses cover the new option: `tests/verify_ha_2026_contract.py` asserts the emitted
+wire sequence for both modes (including the `KEYS <code>E` follow-up, the disarm path and option
+precedence over `entry.data`); `tests/verify_config_flow.py` asserts the selector's options, its
+translation key and that every language translates every mode.
+
+## [2.1.0-beta.1] - 2026-09-19
+
+**Pre-release.** Targets Home Assistant **2026.9.3** (which requires Python 3.14.2+).
+Users on Home Assistant 2026.8 or older should stay on `2.0.0`.
+
+### 🔧 Fixed
+
+* **Removed the deprecated `via_device` from `DeviceInfo`.** Home Assistant
+  deprecated identifier-tuple based `via_device` in favour of `via_device_id`,
+  and removes the old key in **2027.8**. The main panel is now registered in
+  `async_setup_entry` before the platforms are set up, and the zone sub-devices
+  (Windows / Doors / Sensors) link to it through `via_device_id`.
+* **`configuration_url` is now validated before it is sent to the device
+  registry.** Home Assistant rejects a `configuration_url` without an
+  http(s) scheme and a host, which previously raised `ValueError` and aborted
+  the device registration for hosts entered with a scheme or a path.
+* **Device info is built in one place** (`device.py`). Previously six copies of
+  the same `DeviceInfo(...)` block had drifted apart - some omitted
+  `sw_version`, none shared the identifier constants.
+* **`async_unload_entry` no longer raises** when setup failed before the
+  controller existed, and `controller.stop()` is now always called through the
+  executor.
+* **Shutdown runs off the event loop.** The `EVENT_HOMEASSISTANT_STOP` handler
+  closed the socket synchronously in the event loop.
+* **Options are actually reloaded after a change** (`update_listener` is
+  registered and the entry is reloaded, so renamed areas/zones/outputs and
+  changed codes take effect immediately).
+* **`translations/en.json` now matches `strings.json`.** The two had drifted,
+  so the English options flow showed generic labels.
+
+### 🛠 Changed
+
+* **`hass.data[DOMAIN][entry_id]` replaced with `entry.runtime_data`**
+  (`CrowRuntimeData`), the current Home Assistant pattern for per-entry state.
+* **`manifest.json`:** added the required `issue_tracker`, dropped the empty
+  `requirements` list, corrected the `documentation` URL and bumped the version.
+* **`hacs.json`:** dropped the removed `domains` key and `iot_class` (which
+  belongs in the manifest), set the minimum Home Assistant version.
+* Removed leftover German/English placeholder comments and the "AI draft"
+  preamble from the README.
+
+### ✨ Added
+
+* **Brand assets** in `custom_components/crowipmodule/brand/`
+  (`icon.png` 256x256, `icon@2x.png` 512x512, and light/dark `logo.png` /
+  `logo@2x.png`). Since Home Assistant 2026.3 custom integrations ship their own
+  brand images and local files take precedence over the brands CDN, so no pull
+  request to `home-assistant/brands` is needed.
+* **Verification harnesses** under `tests/` that pin the Home Assistant 2026.9
+  entity and config-flow contracts without needing Home Assistant installed.
+
 ## [2.0.0] - Refactoring for Home Assistant 2025.12+
 
 This release marks a complete rewrite of the integration to support modern Home Assistant standards, introducing UI configuration (Config Flow) and removing the dependency on YAML configuration files.

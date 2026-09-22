@@ -1,4 +1,12 @@
 {
+  "selector": {
+    "arm_sequence": {
+      "options": {
+        "command_only": "Solo comando (la centrale si arma subito)",
+        "command_then_keypad": "Comando, poi codice + Invio (la centrale attende il codice)"
+      }
+    }
+  },
   "config": {
     "step": {
       "user": {
@@ -13,7 +21,8 @@
           "timeout": "Timeout",
           "number_of_areas": "Numero Aree",
           "number_of_zones": "Numero Zone",
-          "number_of_outputs": "Numero Uscite"
+          "number_of_outputs": "Numero Uscite",
+          "arm_sequence": "Sequenza di inserimento"
         }
       },
       "areas": {
@@ -79,7 +88,8 @@
           "timeout": "Timeout",
           "number_of_areas": "Aree",
           "number_of_zones": "Zone",
-          "number_of_outputs": "Uscite"
+          "number_of_outputs": "Uscite",
+          "arm_sequence": "Sequenza di inserimento"
         }
       },
       "areas": {

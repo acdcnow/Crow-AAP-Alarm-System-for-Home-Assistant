@@ -1,4 +1,12 @@
 {
+  "selector": {
+    "arm_sequence": {
+      "options": {
+        "command_only": "Command only (panel arms immediately)",
+        "command_then_keypad": "Command, then code + Enter (panel waits for the code)"
+      }
+    }
+  },
   "config": {
     "step": {
       "user": {
@@ -7,13 +15,14 @@
         "data": {
           "host": "Host / IP Address",
           "port": "Port",
-          "firmware_version": "Firmware Version",
+          "firmware_version": "Firmware Selection",
           "firmware_date": "Firmware Build Date",
           "keepalive_interval": "Keep Alive Interval",
           "timeout": "Timeout",
           "number_of_areas": "Number of Areas",
           "number_of_zones": "Number of Zones",
-          "number_of_outputs": "Number of Outputs"
+          "number_of_outputs": "Number of Outputs",
+          "arm_sequence": "Arm Sequence"
         }
       },
       "areas": {
@@ -71,30 +80,31 @@
       "init": {
         "title": "Options",
         "data": {
-          "host": "Host / IP Address",
+          "host": "Host / IP",
           "port": "Port",
-          "firmware_version": "Firmware Version",
+          "firmware_version": "Firmware Selection",
           "firmware_date": "Firmware Build Date",
-          "keepalive_interval": "Keep Alive Interval",
+          "keepalive_interval": "Keep Alive",
           "timeout": "Timeout",
-          "number_of_areas": "Number of Areas",
-          "number_of_zones": "Number of Zones",
-          "number_of_outputs": "Number of Outputs"
+          "number_of_areas": "Areas",
+          "number_of_zones": "Zones",
+          "number_of_outputs": "Outputs",
+          "arm_sequence": "Arm Sequence"
         }
       },
       "areas": {
         "title": "Area Settings",
-        "description": "Update area names and codes.",
+        "description": "Update area info.",
         "data": { "area_1_name": "Area 1 Name", "area_1_code": "Area 1 Code", "area_2_name": "Area 2 Name", "area_2_code": "Area 2 Code" }
       },
       "outputs": {
         "title": "Output Settings",
-        "description": "Update output names.",
+        "description": "Update output info.",
         "data": { "output_1_name": "Output 1 Name", "output_2_name": "Output 2 Name", "output_3_name": "Output 3 Name", "output_4_name": "Output 4 Name", "output_5_name": "Output 5 Name", "output_6_name": "Output 6 Name", "output_7_name": "Output 7 Name", "output_8_name": "Output 8 Name" }
       },
       "zones": {
         "title": "Zone Settings",
-        "description": "Update zone names and types.",
+        "description": "Update zone info.",
         "data": { "zone_1_name": "Zone 1 Name", "zone_1_type": "Zone 1 Type", "zone_2_name": "Zone 2 Name", "zone_2_type": "Zone 2 Type", "zone_3_name": "Zone 3 Name", "zone_3_type": "Zone 3 Type", "zone_4_name": "Zone 4 Name", "zone_4_type": "Zone 4 Type", "zone_5_name": "Zone 5 Name", "zone_5_type": "Zone 5 Type", "zone_6_name": "Zone 6 Name", "zone_6_type": "Zone 6 Type", "zone_7_name": "Zone 7 Name", "zone_7_type": "Zone 7 Type", "zone_8_name": "Zone 8 Name", "zone_8_type": "Zone 8 Type", "zone_9_name": "Zone 9 Name", "zone_9_type": "Zone 9 Type", "zone_10_name": "Zone 10 Name", "zone_10_type": "Zone 10 Type", "zone_11_name": "Zone 11 Name", "zone_11_type": "Zone 11 Type", "zone_12_name": "Zone 12 Name", "zone_12_type": "Zone 12 Type", "zone_13_name": "Zone 13 Name", "zone_13_type": "Zone 13 Type", "zone_14_name": "Zone 14 Name", "zone_14_type": "Zone 14 Type", "zone_15_name": "Zone 15 Name", "zone_15_type": "Zone 15 Type", "zone_16_name": "Zone 16 Name", "zone_16_type": "Zone 16 Type" }
       }
     }

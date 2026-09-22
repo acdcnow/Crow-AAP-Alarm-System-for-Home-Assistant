@@ -1,12 +1,5 @@
 {
   "name": "Crow/AAP Alarm IP Module",
   "render_readme": true,
-  "homeassistant": "2026.9.0",
-  "iot_class": "local_push",
-  "domains": [
-    "alarm_control_panel",
-    "binary_sensor",
-    "sensor",
-    "switch"
-  ]
+  "homeassistant": "2026.9.3"
 }

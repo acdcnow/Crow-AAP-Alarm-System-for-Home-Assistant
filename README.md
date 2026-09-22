@@ -1,12 +1,42 @@
-Here is a complete, professional `README.md` file for your GitHub repository. It covers the installation via HACS, configuration, features, and debugging.
-
----
+<p align="center">
+  <img src="custom_components/crowipmodule/brand/logo.png" alt="Crow/AAP Alarm IP Module" width="420">
+</p>
 
 # Crow/AAP Alarm IP Module for Home Assistant
 
 This is a custom integration for **Home Assistant** to control **Crow Runner**, **AAP (Arrowhead Alarm Products)**, and compatible alarm systems equipped with the **IP Module** (ESIM/TCP) running Firmware Ver 2.10.3628 2017 Oct 20 09:48:43.
 
-Unlike previous solutions, this integration uses a **direct local TCP implementation** (no external Python dependencies like `pycrowipmodule`) to ensure robust connection handling, specific command sequences (`Code` -> `Command` -> `Enter`), and accurate status parsing.
+Unlike previous solutions, this integration uses a **direct local TCP implementation** (the driver is vendored inside the integration, so no external Python dependency is installed) to ensure robust connection handling, specific command sequences (`Code` -> `Command` -> `Enter`), and accurate status parsing.
+
+> **Current release: `2.1.0-beta.2` (pre-release).** Targets Home Assistant 2026.9.3.
+> HACS only offers this if you enable *Show beta versions* on the integration page.
+> Users on Home Assistant 2026.8 or older should stay on `2.0.0`.
+
+## ✅ Requirements
+
+* **Home Assistant 2026.9.3 or newer** (Home Assistant 2026.9 requires Python 3.14.2+).
+* A Crow Runner 8/16 or AAP ESL-2 board with the IP Module / APP POD.
+* The panel must speak the ASCII line protocol on TCP port `5002` (the default).
+
+## 📚 Documentation
+
+**Design documents (in this repository)**
+
+| Document | What it covers |
+|---|---|
+| [Architectural Design Document](docs/ADD.md) | Context, architectural decisions, runtime view, quality attributes, risks |
+| [Software Design Document](docs/SDD.md) | Modules, signatures, data models, protocol tables, per-entity contracts |
+| [Workflows and Diagrams](docs/WORKFLOWS.md) | Mermaid diagrams: setup, data flow, commands, connection lifecycle, release |
+
+**Wiki**
+
+| Page | Audience |
+|---|---|
+| [Home / landing page](https://github.com/acdcnow/Crow-AAP-Alarm-System-for-Home-Assistant/wiki) | Everyone - picks the right track for your version |
+| [HA 2026.09 Development Branch](https://github.com/acdcnow/Crow-AAP-Alarm-System-for-Home-Assistant/wiki/HA-2026.09-Development-Branch) | Users of the `2.1.0-beta.2` pre-release |
+| [Archived Documentation](https://github.com/acdcnow/Crow-AAP-Alarm-System-for-Home-Assistant/wiki/Archived-Documentation) | Users still on 1.x / 2.0.0 |
+
+**Interactive architecture map** - [GitDiagram](https://gitdiagram.com/acdcnow/crow-aap-alarm-system-for-home-assistant) renders the repository as a component graph. Note that it reads the **default branch** only, so it currently shows the legacy `master` architecture.
 
 ## 🌟 Features
 
@@ -15,21 +45,31 @@ Unlike previous solutions, this integration uses a **direct local TCP implementa
 * Supports **Custom Bypass** (via the "Arm Custom Bypass" feature).
 * **Keypad Support:** Forces a numeric keypad in the UI to input your user code.
 * **Correct Command Sequence:** Automatically handles the required protocol sequence (e.g., `Code` + `ARM` + `Enter`).
+* Entities become **unavailable** when the TCP connection drops, instead of silently showing stale state.
 
 
 * **Binary Sensors (Zones):**
 * Supports up to 16 zones.
 * Configurable device class (Motion, Door, Window, Smoke, etc.) via the UI.
 * Real-time status updates (Open/Closed/Alarm/Tamper).
+* Zones are grouped into sub-devices (Windows / Doors / Sensors) linked to the main panel.
 
 
 * **Switches (Outputs):**
-* Control up to 2 Relays/Outputs (Output 1 & 2).
+* Control up to 8 board outputs.
+
+
+* **Buttons:**
+* **Toggle Chime**, plus **Relay 1** / **Relay 2** momentary activation.
 
 
 * **System Status:**
-* Monitors **Mains Power**, **Battery Health**, and **System Tamper**.
+* Monitors **Mains Power**, **Battery Health**, **Tamper**, **Phone Line**, **Dialler** and **Zone Battery**.
 * Handles "Power Failure" and "Low Battery" alerts correctly (no false alarms on restart).
+
+
+* **Device page:** the panel reports its firmware version, the configured host and links to `http://<host>`.
+* **Diagnostics:** downloadable from the integration page with area codes and the host redacted.
 
 
 
@@ -103,6 +143,8 @@ This integration uses the Home Assistant **Config Flow** (UI). No YAML configura
 * **Port:** Usually `5002`.
 * **Keep Alive:** Default `60` seconds.
 * **Timeout:** Default `10` seconds.
+* **Arm Sequence:** How the panel expects to be armed. Leave the default unless arming does
+  nothing - see [Arming Sequence](#arming-sequence).
 
 ---
 
@@ -112,15 +154,11 @@ This integration uses the Home Assistant **Config Flow** (UI). No YAML configura
 
 Add the standard **Alarm Panel** card to your dashboard.
 
-* **To Arm:**
-1. Enter your User Code on the keypad.
-2. Press **Arm Away** or **Arm Home**.
-
-
-* **To Disarm:**
-1. Enter your User Code.
-2. Press **Disarm**.
-
+* **To Arm:** Press **Arm Away** or **Arm Home**. If no code is stored for the area, Home
+  Assistant asks for one first; otherwise the stored code is sent automatically.
+* **To Disarm:** Press **Disarm** and enter your user code (again, unless a code is stored
+  for the area).
+* **To Trigger:** Press **Trigger** to raise a panic alarm (`PANIC`).
 
 * **To Bypass:**
 1. Enter your User Code.
@@ -128,9 +166,44 @@ Add the standard **Alarm Panel** card to your dashboard.
 
 
 
+### Arming Sequence
+
+The Crow protocol has no single "arm with code" command. Depending on the firmware and how
+the panel is programmed, either
+
+* the bare `ARM` / `STAY` command completes the arming, or
+* the panel sends `ARM` / `STAY` and then **waits for the user code followed by Enter**.
+
+Select the matching behaviour with the **Arm Sequence** option, under
+**Settings > Devices & Services > Crow/AAP Alarm IP Module > Configure** (it is also the last
+step of the setup wizard).
+
+| Option | Arm Away sends | Arm Home sends | Use when |
+| --- | --- | --- | --- |
+| **Command, then code + Enter** (default) | `ARM ` then `KEYS <code>E` | `STAY ` then `KEYS <code>E` | The panel waits for your code before it arms. This matches the behaviour of `2.0.0`. |
+| **Command only** | `ARM ` | `STAY ` | The panel arms immediately on the command, and a following code press would cancel the arming. |
+
+The trailing `E` in `KEYS <code>E` is the **Enter** key, so the sequence above is the keypad
+equivalent of typing your code and pressing Enter. No separate Enter button is required.
+
+**Disarming** is always keypad style - the code followed by Enter (`KEYS <code>E`, then
+`STATUS `) - regardless of the selected arm sequence.
+
+> [!NOTE]
+> If **Command, then code + Enter** is selected but the area has no code stored, only the arm
+> command is sent and a warning is written to the log. Store the area code, or switch to
+> **Command only**.
+
 ### Switches
 
 Entities will be created for `switch.relay_1` and `switch.relay_2` (if named). These can be used to toggle the PGM outputs on the board (e.g., to open a garage door).
+
+Outputs are **momentary** on the Crow protocol: turning a switch on sends the `OO<n>` command, so the board toggles its output. Two consecutive toggles within one status refresh are debounced to avoid double-triggering.
+
+### Buttons
+
+* **Toggle Chime** - toggles the panel's keypad chime.
+* **Relay 1** / **Relay 2** - briefly energise the board relays (`RL1` / `RL2`).
 
 ---
 
@@ -150,9 +223,14 @@ logger:
 
 **Common Issues:**
 
-* **"Connection Refused":** Ensure no other device (or previous instance of Home Assistant) is connected to the IP Module. The module usually supports only **one** active TCP connection. This is not valid any more 
+* **"Connection Refused":** Ensure no other device (or previous instance of Home Assistant) is connected to the IP Module. Older firmware only tolerated **one** active TCP connection at a time; newer firmware allows reconnects while an old socket is still winding down, and the integration retries with exponential backoff.
 * **Status not updating:** Ensure your IP Module is configured to send ASCII messages.
 * **"Unknown" state on boot:** The integration actively queries the status on connection. If the panel is busy, it might take a few seconds to sync.
+* **Arming does nothing:** The panel is waiting for your user code. Set **Arm Sequence** to
+  **Command, then code + Enter** and make sure the area has a code stored - see
+  [Arming Sequence](#arming-sequence).
+* **The panel disarms instead of arming:** Set **Arm Sequence** to **Command only**. On these
+  panels the code press that follows the arm command is read as a disarm.
 
 ---
 
@@ -170,6 +248,8 @@ The configuration flow is fully translated into:
 
 ## Credits
 
-Based on the `pycrowipmodule` library.
+Based on the `pycrowipmodule` library by @febalci, which the driver inside
+`custom_components/crowipmodule/pycrowipmodule/` is derived from (MIT).
 Original custom component and pypi author: @febalci.
-Refactored for Home Assistant 2025+ with Config Flow support.
+Refactored for Home Assistant 2026.9+ with Config Flow support, `entry.runtime_data`
+and a `brand/` asset directory.
