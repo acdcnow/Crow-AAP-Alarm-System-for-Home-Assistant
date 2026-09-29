@@ -61,10 +61,34 @@ Home Assistant 2026.8 or older should stay on `2.0.0`.
   validates `hacs.json` and `manifest.json` against HACS's own schemas, and CI
   runs it, so this cannot come back unnoticed.
 
-  > The `2.1.0` tag was moved onto this fix and the release was published
-  > again. HACS downloads by tag, so a repository that was already fetched needs
-  > *Redownload* (or *Update*, if HACS still offers it) after refreshing the
-  > repository list.
+  > The `2.1.0` tag was moved onto this fix (and then again onto the cleanup
+  > below) and the release was published again. HACS downloads by tag, so a
+  > repository that was already fetched needs *Redownload* (or *Update*, if HACS
+  > still offers it) after refreshing the repository list.
+* **Removed the content the release merge had pulled in from the old `master`
+  line.** The promotion used `-X theirs`, which only resolves *conflicting*
+  hunks - changes the old line had made to *other* lines of the same file merged
+  in silently. The release therefore carried text the `HA2026_09_dev` line never
+  had:
+
+  * `info.md` - large parts replaced by the 1.1.x description, including a
+    version badge that read `1.1.4`. HACS renders this file as the integration's
+    info panel.
+  * `README.md` - a duplicated "Manual Installation" step list and a stray
+    "### 2. Device Quantities" section.
+  * `alarm_control_panel.py`, `binary_sensor.py`, `config_flow.py` - two stray
+    comments and a removed blank line (no functional change).
+  * `.github/workflows/python-app.yml` - the generic CI template, replaced by
+    `verify.yml` (see above).
+
+  All of it is restored from `HA2026_09_dev`. The tree now differs from that
+  branch only by the CI workflow, this changelog,
+  `tests/verify_hacs_manifest.py` and `LICENSE`.
+* **`LICENSE` is the GPL-3.0 file**, not the MIT file the 2.x development line
+  carried: the old `master` line added GPL-3.0 on 2026-09-23 and GitHub already
+  reported the repository as GPL-3.0, so nothing changes for HACS. Note however
+  that `2.0.0` and the `2.1.0-beta` releases were published under MIT - restore
+  that with `git checkout 2.0.0 -- LICENSE` if MIT is the intended licence.
 
 ## [2.1.0-beta.2] - 2026-09-21
 

@@ -39,7 +39,6 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-# Set "window" as the first element to make it default if not specified otherwise logic
 ZONE_TYPES = [
     "window", "motion", "door", "smoke", "gas", "co", "tamper", "safety"
 ]

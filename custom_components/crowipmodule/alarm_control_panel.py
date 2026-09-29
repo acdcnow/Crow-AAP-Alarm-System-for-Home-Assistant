@@ -135,7 +135,6 @@ class CrowAlarmPanel(AlarmControlPanelEntity):
 
     @callback
     def _update_callback(self, area) -> None:
-        # If area is None (global update) or matches this area
         if area is None or area == self._area_number:
             if self._area_number_int in self._controller.area_state:
                 self._info = self._controller.area_state[self._area_number_int]

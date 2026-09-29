@@ -94,6 +94,7 @@ async def async_setup_entry(
 
     async_add_entities(entities)
 
+
 class CrowBaseEntity(BinarySensorEntity):
     _attr_has_entity_name = True
     _attr_should_poll = False

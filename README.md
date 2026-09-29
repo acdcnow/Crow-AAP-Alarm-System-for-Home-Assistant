@@ -124,9 +124,6 @@ https://github.com/acdcnow/Crow-AAP-Alarm-System-for-Home-Assistant
 9. **Restart Home Assistant**.
 
 ### Option 2: Manual Installation
-1.  Download the `custom_components/crowipmodule` folder from this repository.
-2.  Copy the folder into your Home Assistant's `config/custom_components/` directory.
-3.  Restart Home Assistant.
 
 1. Download the `crowipmodule` folder from this repository.
 2. Copy the `crowipmodule` folder into your Home Assistant's `custom_components` directory.
@@ -195,10 +192,6 @@ state of every zone (the `bypass` attribute of each zone entity, fed by the
 panel's `ZBY` / `ZBYR` messages), but this integration exposes no service, no
 button and no alarm mode that sets it - bypass from the panel keypad.
 
-### 2. Device Quantities
-You will be asked to define how many devices you have.
-* **Number of Areas:** 1 or 2.
-* **Number of Zones:** 1 to 16.
 
 ### Arming Sequence
 
