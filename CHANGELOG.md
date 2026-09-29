@@ -44,6 +44,12 @@ Home Assistant 2026.8 or older should stay on `2.0.0`.
 * Manifest and README now report `2.1.0` instead of `2.1.0-beta.2`. HACS
   compares the tag against the manifest version, so a stable tag with a
   pre-release manifest version never matched.
+* **CI**: the generic `Python application` workflow that shipped with the
+  repository is replaced by `.github/workflows/verify.yml`. The old one pinned
+  Python 3.10 (this integration targets Home Assistant 2026.9, which requires
+  3.14.2+) and ran `pytest` over a repository that contains no pytest tests, so
+  it could only ever fail. The new workflow runs the three real harnesses on
+  Python 3.14.
 
 ## [2.1.0-beta.2] - 2026-09-21
 
