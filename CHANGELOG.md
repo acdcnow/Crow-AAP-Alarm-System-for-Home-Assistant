@@ -1,5 +1,50 @@
 # Changelog
 
+## [2.1.0] - 2026-09-30
+
+First **stable** release of the Home Assistant 2026.9 line. It contains
+`2.1.0-beta.1` and `2.1.0-beta.2` unchanged, plus the additions below - update
+from either beta.
+
+Targets Home Assistant **2026.9.3** (which requires Python 3.14.2+). Users on
+Home Assistant 2026.8 or older should stay on `2.0.0`.
+
+### ✨ Added
+
+* **A ready-to-use Lovelace dashboard** (`dashboards/alarm-dashboard.yaml`): a
+  standard view (arming, doors, windows, motion) and an expert view (panel
+  diagnostics, classic keypad with a guarded panic trigger, 72 h event log, 24 h
+  zone history) switched with a single `input_boolean.expert_mode`. Conditional
+  banners cover alarm, panel fault and exit delay. No packages, no template
+  sensors and no custom cards - not even a helper beyond the view switch, every
+  summary is computed by the cards themselves.
+* **Offline dashboard preview** (`dashboards/preview/`): renders the exact card
+  tree from the YAML - `cards.js` is generated from it, not maintained by hand -
+  with the real Home Assistant theme tokens, including the visibility rules on
+  cards and sections, the tile colour logic and the Jinja in the markdown cards.
+
+### 📝 Documentation
+
+* README: release banner for `2.1.0`, a new Dashboard section with screenshots,
+  and the real repository URL in the HACS instructions (it still contained the
+  `YOUR_USERNAME/YOUR_REPO_NAME` placeholder, so following them literally added
+  a non-existent repository).
+* README: **corrected the Custom Bypass claim.** The integration never offered
+  it - `supported_features` is `ARM_HOME | ARM_AWAY | TRIGGER`, and there is no
+  bypass service or button - so both the feature bullet and the "To Bypass"
+  instructions described something that does not exist. They now state that the
+  panel reports the bypass state per zone (`bypass` attribute, fed by the
+  panel's `ZBY` / `ZBYR` messages) but that setting it is not possible from
+  Home Assistant.
+* New `dashboards/README.md`: install steps, entity ids, the offline preview and
+  a table of the defects the new dashboard fixes in the previous one.
+
+### 🔧 Fixed
+
+* Manifest and README now report `2.1.0` instead of `2.1.0-beta.2`. HACS
+  compares the tag against the manifest version, so a stable tag with a
+  pre-release manifest version never matched.
+
 ## [2.1.0-beta.2] - 2026-09-21
 
 **Pre-release.** Targets Home Assistant **2026.9.3** (which requires Python 3.14.2+).

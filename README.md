@@ -8,9 +8,10 @@ This is a custom integration for **Home Assistant** to control **Crow Runner**, 
 
 Unlike previous solutions, this integration uses a **direct local TCP implementation** (the driver is vendored inside the integration, so no external Python dependency is installed) to ensure robust connection handling, specific command sequences (`Code` -> `Command` -> `Enter`), and accurate status parsing.
 
-> **Current release: `2.1.0-beta.2` (pre-release).** Targets Home Assistant 2026.9.3.
-> HACS only offers this if you enable *Show beta versions* on the integration page.
+> **Current release: `2.1.0`.** Targets Home Assistant 2026.9.3.
 > Users on Home Assistant 2026.8 or older should stay on `2.0.0`.
+> The `2.1.0-beta.1` / `2.1.0-beta.2` pre-releases are superseded - update to `2.1.0`
+> (HACS shows it without enabling *Show beta versions*).
 
 ## ✅ Requirements
 
@@ -27,23 +28,24 @@ Unlike previous solutions, this integration uses a **direct local TCP implementa
 | [Architectural Design Document](docs/ADD.md) | Context, architectural decisions, runtime view, quality attributes, risks |
 | [Software Design Document](docs/SDD.md) | Modules, signatures, data models, protocol tables, per-entity contracts |
 | [Workflows and Diagrams](docs/WORKFLOWS.md) | Mermaid diagrams: setup, data flow, commands, connection lifecycle, release |
+| [Dashboard](dashboards/README.md) | Ready-to-use Lovelace dashboard (standard + expert view) with an offline preview |
 
 **Wiki**
 
 | Page | Audience |
 |---|---|
 | [Home / landing page](https://github.com/acdcnow/Crow-AAP-Alarm-System-for-Home-Assistant/wiki) | Everyone - picks the right track for your version |
-| [HA 2026.09 Development Branch](https://github.com/acdcnow/Crow-AAP-Alarm-System-for-Home-Assistant/wiki/HA-2026.09-Development-Branch) | Users of the `2.1.0-beta.2` pre-release |
+| [HA 2026.09 Development Branch](https://github.com/acdcnow/Crow-AAP-Alarm-System-for-Home-Assistant/wiki/HA-2026.09-Development-Branch) | Users of the `2.1.0` release |
 | [Archived Documentation](https://github.com/acdcnow/Crow-AAP-Alarm-System-for-Home-Assistant/wiki/Archived-Documentation) | Users still on 1.x / 2.0.0 |
 
-**Interactive architecture map** - [GitDiagram](https://gitdiagram.com/acdcnow/crow-aap-alarm-system-for-home-assistant) renders the repository as a component graph. Note that it reads the **default branch** only, so it currently shows the legacy `master` architecture.
+**Interactive architecture map** - [GitDiagram](https://gitdiagram.com/acdcnow/crow-aap-alarm-system-for-home-assistant) renders the repository as a component graph. Note that it reads the **default branch** only (`master`).
 
 ## 🌟 Features
 
 * **Alarm Control Panel:**
 * Supports **Arm Away**, **Arm Home (Stay)**, **Disarm**, and **Trigger (Panic)**.
-* Supports **Custom Bypass** (via the "Arm Custom Bypass" feature).
 * **Keypad Support:** Forces a numeric keypad in the UI to input your user code.
+  Set a *default code* on the entity if you want to arm and disarm without the prompt.
 * **Correct Command Sequence:** Automatically handles the required protocol sequence (e.g., `Code` + `ARM` + `Enter`).
 * Entities become **unavailable** when the TCP connection drops, instead of silently showing stale state.
 
@@ -71,6 +73,32 @@ Unlike previous solutions, this integration uses a **direct local TCP implementa
 * **Device page:** the panel reports its firmware version, the configured host and links to `http://<host>`.
 * **Diagnostics:** downloadable from the integration page with area codes and the host redacted.
 
+---
+
+## Dashboard
+
+A ready-to-use Lovelace dashboard for this integration ships in
+[`dashboards/`](dashboards/README.md). It needs **no packages, no template
+sensors and no custom cards** - the only requirement is an
+`input_boolean.expert_mode` helper.
+
+| Standard view | Expert view |
+| --- | --- |
+| ![Standard view](dashboards/preview/screenshot-standard.jpg) | ![Expert view](dashboards/preview/screenshot-expert.jpg) |
+
+* **Standard** (`expert_mode = off`) - arming with the compact `alarm-modes`
+  tile, the state of the house, doors, windows and motion, plus conditional
+  banners for alarm, panel fault and exit delay.
+* **Expert** (`expert_mode = on`) - adds the panel diagnostics, the classic
+  keypad card with a guarded panic trigger, a 72 h event log and a 24 h zone
+  history.
+
+Every summary is computed by the cards themselves, so there is nothing else to
+install. See [dashboards/README.md](dashboards/README.md) for the install steps,
+the entity ids and the offline preview.
+
+![Alarm state](dashboards/preview/screenshot-alarm.jpg)
+
 
 
 ---
@@ -87,12 +115,9 @@ This integration is not yet in the default HACS store, so you need to add it as 
 4. Select **Custom repositories**.
 5. In the **Repository** field, paste the URL of this GitHub repository:
 ```text
-https://github.com/YOUR_USERNAME/YOUR_REPO_NAME
+https://github.com/acdcnow/Crow-AAP-Alarm-System-for-Home-Assistant
 
 ```
-
-
-*(Replace with your actual GitHub repository URL)*
 6. In the **Category** dropdown, select **Integration**.
 7. Click **Add**.
 8. Close the dialog, find the new **Crow/AAP Alarm IP Module** integration in the list, and click **Download**.
@@ -160,10 +185,12 @@ Add the standard **Alarm Panel** card to your dashboard.
   for the area).
 * **To Trigger:** Press **Trigger** to raise a panic alarm (`PANIC`).
 
-* **To Bypass:**
-1. Enter your User Code.
-2. Press **Bypass** (found under "Arm Custom Bypass" or via service call).
+### Bypassing a zone
 
+Bypassing is **not available from Home Assistant**. The panel reports the bypass
+state of every zone (the `bypass` attribute of each zone entity, fed by the
+panel's `ZBY` / `ZBYR` messages), but this integration exposes no service, no
+button and no alarm mode that sets it - bypass from the panel keypad.
 
 
 ### Arming Sequence

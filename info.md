@@ -12,6 +12,7 @@ It communicates directly with the IP module over the local network to provide re
 * **Outputs:** Control up to 2 switchable outputs (e.g., Garage Door, Gates).
 * **System Status:** Diagnostic sensors for Mains Power, Battery, Tamper, Phone Line, and Dialler status.
 * **Device Registry:** All entities are grouped under a single "Crow Alarm System" device.
+* **Dashboard:** a ready-to-use Lovelace dashboard with a standard and an expert view ships in [`dashboards/`](dashboards/README.md).
 
 ## 📋 Requirements
 
