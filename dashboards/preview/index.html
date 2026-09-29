@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <title>Alarmanlage · dashboard preview (Home Assistant 2026.9)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="dashboard.css" />
+  </head>
+  <body class="dark">
+    <!--
+      Offline preview of dashboards/alarm-dashboard.yaml.
+
+      It renders the very same card tree (cards.js is generated from the YAML by
+      build_cards.py) with a fake `hass` object and the real Home Assistant
+      theme tokens, including the visibility rules - so switching this page's
+      Standard/Expert button is exactly what input_boolean.expert_mode does in
+      Home Assistant, and the scenario buttons are different states of the
+      house.
+
+      The toolbar is part of the preview, not of the dashboard.
+    -->
+    <div class="harness">
+      <div class="brand">
+        Preview · Alarmanlage
+        <span>Home Assistant 2026.9 · sections view · simulierte Zustände</span>
+      </div>
+
+      <div class="seg" id="mode-switch">
+        <button data-mode="off" class="active">Standard</button>
+        <button data-mode="on">Expert</button>
+      </div>
+
+      <div class="seg" id="scenario-switch"></div>
+
+      <div class="hint">
+        input_boolean.expert_mode = <b id="mode-value">off</b> ·
+        <b id="section-count">4</b> sichtbare Sections ·
+        Szene <b id="scenario-value">Ruhig</b>
+      </div>
+
+      <div class="spacer"></div>
+      <button class="btn" id="theme-toggle">☀︎ Light</button>
+    </div>
+
+    <div id="view" class="ha-view"></div>
+
+    <script src="icons.js"></script>
+    <script src="cards.js"></script>
+    <script src="dashboard.js"></script>
+  </body>
+</html>

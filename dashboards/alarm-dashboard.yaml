@@ -1,0 +1,700 @@
+# =============================================================================
+#  Crow/AAP Alarmanlage - Lovelace dashboard
+#  Home Assistant 2026.9 - sections view
+# -----------------------------------------------------------------------------
+#  Two dashboards in one file, switched with a helper:
+#
+#      input_boolean.expert_mode = off   ->  STANDARD
+#                                            4 sections: control, doors,
+#                                            windows, motion
+#      input_boolean.expert_mode = on    ->  EXPERT
+#                                            everything above PLUS panel
+#                                            diagnostics, event log, zone
+#                                            history and the classic keypad
+#
+#  The expert sections never replace the standard ones, they are added below
+#  them - an expert view is a superset, not a different dashboard.
+#
+#  Requires
+#  --------
+#    * Home Assistant 2026.9 or newer (sections view, section `visibility`,
+#      tile `state_content`, the `alarm-modes` tile feature, heading badges).
+#    * custom_components/crowipmodule (this repo).
+#    * Exactly ONE helper, which you already have:
+#          input_boolean.expert_mode
+#      If it is ever missing, add it to configuration.yaml and restart:
+#
+#          input_boolean:
+#            expert_mode:
+#              name: Alarm Expertenmodus
+#              icon: mdi:account-hard-hat
+#
+#  NO packages, NO template sensors, NO custom cards, NO card_mod, NO theme.
+#  Every summary you see is computed by the cards themselves: conditional
+#  cards for the alarm banners, Jinja inside the markdown cards for the
+#  details. The old dashboard needed nothing either - it stays that way.
+#
+#  Install
+#  -------
+#    A) UI:   dashboard -> pencil -> three dots -> "Raw configuration editor"
+#             -> paste this whole file -> Save.
+#    B) YAML: save as <config>/lovelace/alarm.yaml and register it:
+#
+#               lovelace:
+#                 dashboards:
+#                   alarm:
+#                     mode: yaml
+#                     title: Alarmanlage
+#                     icon: mdi:shield-lock
+#                     show_in_sidebar: true
+#                     filename: lovelace/alarm.yaml
+#
+#             In YAML mode nest this file under a `views:` key:
+#
+#               views:
+#                 - <this file from "type: sections" downwards>
+#
+#  Entity ids
+#  ----------
+#  The ids below are the ones the dashboard this file replaces used (its zone
+#  names were taken over 1:1). They follow the device name, so if you renamed
+#  entities in the UI, adjust the ids here.
+#
+#  Preview: dashboards/preview/index.html   Docs: dashboards/README.md
+# =============================================================================
+
+# Three columns on purpose: the zone groups are narrow tile grids, and with
+# four columns only one of them would sit next to the hero while the rest
+# would leave a gap.
+type: sections
+max_columns: 3
+dense_section_placement: true
+title: Alarmanlage
+subtitle: Crow AAP IP Module · Bereich A
+path: alarm
+icon: mdi:shield-lock
+
+# Restrict the dashboard to specific users (Settings -> People -> user id):
+# visible:
+#   - user: 581fca7fdc014b8b894519cc531f9a04
+
+header:
+  layout: responsive
+  badges_position: bottom
+  badges_wrap: wrap
+
+# -----------------------------------------------------------------------------
+# Header badges
+#
+# The two expert-switch badges are mutually exclusive, so only one of them is
+# ever visible: the label always reads as the *other* mode, i.e. "click here to
+# switch to it". Colour signals the direction (blue = down to standard,
+# purple = up to expert).
+#
+# The two fault badges in the middle only exist while the fault does - the
+# badge row doubles as the alert strip.
+# -----------------------------------------------------------------------------
+badges:
+  # --- the one thing that always has to be readable ------------------------
+  - type: entity
+    entity: alarm_control_panel.security_crow_alarm_system_a
+    name: Alarmanlage
+    color: state
+    show_name: true
+    show_state: true
+
+  # --- is the house closed? -------------------------------------------------
+  #
+  # Two mutually exclusive badges instead of one with `show_state`. The label
+  # stays readable whatever device class the helper has: a bare `show_state`
+  # prints "Ein"/"Aus" for a binary_sensor without a device class, which says
+  # nothing on an alarm dashboard.
+  - type: entity
+    entity: binary_sensor.alles_geschlossen
+    name: Haus gesichert
+    icon: mdi:shield-check
+    color: green
+    show_name: true
+    show_state: false
+    visibility:
+      - condition: state
+        entity: binary_sensor.alles_geschlossen
+        state: "on"
+  - type: entity
+    entity: binary_sensor.alles_geschlossen
+    name: Zonen offen
+    icon: mdi:shield-alert
+    color: red
+    show_name: true
+    show_state: false
+    visibility:
+      - condition: state
+        entity: binary_sensor.alles_geschlossen
+        state: "off"
+
+  # --- only ever visible when something is actually wrong -------------------
+  - type: entity
+    entity: binary_sensor.crow_alarm_system_system_tamper
+    name: Sabotage
+    icon: mdi:alert-decagram
+    color: red
+    show_name: true
+    show_state: false
+    visibility:
+      - condition: state
+        entity: binary_sensor.crow_alarm_system_system_tamper
+        state: "on"
+  - type: entity
+    entity: binary_sensor.crow_alarm_system_mains_power
+    name: Netzstrom
+    icon: mdi:power-plug-off
+    color: red
+    show_name: true
+    show_state: false
+    visibility:
+      - condition: state
+        entity: binary_sensor.crow_alarm_system_mains_power
+        state: "off"
+
+  # --- view switch ----------------------------------------------------------
+  - type: entity
+    entity: input_boolean.expert_mode
+    name: Expert
+    icon: mdi:account-hard-hat
+    color: deep-purple
+    show_name: true
+    show_state: false
+    tap_action:
+      action: toggle
+    visibility:
+      - condition: state
+        entity: input_boolean.expert_mode
+        state: "off"
+  - type: entity
+    entity: input_boolean.expert_mode
+    name: Standard
+    icon: mdi:eye-outline
+    color: blue
+    show_name: true
+    show_state: false
+    tap_action:
+      action: toggle
+    visibility:
+      - condition: state
+        entity: input_boolean.expert_mode
+        state: "on"
+
+sections:
+
+  # ===========================================================================
+  #  1) CONTROL - the hero. Everything you touch, plus the state of the house
+  #     in one glance. Spans two columns.
+  # ===========================================================================
+  - type: grid
+    column_span: 2
+    cards:
+      - type: heading
+        heading: Haus Alarmsystem
+        icon: mdi:shield-home
+        heading_style: title
+        badges:
+          - type: entity
+            entity: sensor.crow_system_status
+            color: state
+            show_state: true
+          - type: entity
+            entity: binary_sensor.alles_geschlossen
+            icon: mdi:shield-check
+            color: green
+            show_state: false
+            visibility:
+              - condition: state
+                entity: binary_sensor.alles_geschlossen
+                state: "on"
+
+      # -----------------------------------------------------------------------
+      # Urgency banners, in order of severity.
+      #
+      # Each one is a conditional card, so on a quiet day NOT ONE of them is
+      # rendered and the hero stays calm. This is what a professional alarm
+      # dashboard needs and what template sensors would normally be built for -
+      # here the cards do it themselves.
+      # -----------------------------------------------------------------------
+      - type: conditional
+        conditions:
+          - condition: state
+            entity: alarm_control_panel.security_crow_alarm_system_a
+            state: triggered
+        card:
+          type: markdown
+          content: |
+            ## Alarm ausgelöst
+            {% set zone = state_attr('alarm_control_panel.security_crow_alarm_system_a', 'alarm_zone') %}
+            {% if zone %}
+            Der Melder hat **Zone {{ zone }}** gemeldet.
+            {% else %}
+            Die Anlage hat die auslösende Zone noch nicht übermittelt.
+            {% endif %}
+
+            Erst die Ursache feststellen, dann quittieren - die Reihenfolge steht
+            im Ereignisprotokoll (Expertenmodus).
+
+      - type: conditional
+        conditions:
+          - condition: or
+            conditions:
+              - condition: state
+                entity: binary_sensor.crow_alarm_system_mains_power
+                state: "off"
+              - condition: state
+                entity: binary_sensor.crow_alarm_system_system_battery
+                state: "on"
+              - condition: state
+                entity: binary_sensor.crow_alarm_system_zone_battery
+                state: "on"
+              - condition: state
+                entity: binary_sensor.crow_alarm_system_system_tamper
+                state: "on"
+              - condition: state
+                entity: binary_sensor.crow_alarm_system_phone_line
+                state: "off"
+              - condition: state
+                entity: binary_sensor.crow_alarm_system_dialler
+                state: "off"
+              - condition: state
+                entity: alarm_control_panel.security_crow_alarm_system_a
+                state: unavailable
+        card:
+          type: markdown
+          content: |
+            ## Störung der Alarmanlage
+            Die Anlage meldet:
+            {% if is_state('binary_sensor.crow_alarm_system_mains_power', 'off') %}
+            - **Netzstrom** ausgefallen
+            {% endif %}
+            {% if is_state('binary_sensor.crow_alarm_system_system_battery', 'on') %}
+            - **Systembatterie** schwach
+            {% endif %}
+            {% if is_state('binary_sensor.crow_alarm_system_zone_battery', 'on') %}
+            - **Zonenbatterie** schwach
+            {% endif %}
+            {% if is_state('binary_sensor.crow_alarm_system_system_tamper', 'on') %}
+            - **Sabotagekontakt** ausgelöst
+            {% endif %}
+            {% if is_state('binary_sensor.crow_alarm_system_phone_line', 'off') %}
+            - **Telefonleitung** gestört
+            {% endif %}
+            {% if is_state('binary_sensor.crow_alarm_system_dialler', 'off') %}
+            - **Wählgerät** gestört
+            {% endif %}
+            {% if is_state('alarm_control_panel.security_crow_alarm_system_a', 'unavailable') %}
+            - **keine Verbindung** zum IP-Modul
+            {% endif %}
+
+            Die Zonen sind weiterhin gesichert, aber die Anlage kann eine Meldung
+            nicht sicher weiterleiten. Details unter *Systemstatus* (Expertenmodus).
+
+      - type: conditional
+        conditions:
+          - condition: state
+            entity: alarm_control_panel.security_crow_alarm_system_a
+            state: arming
+        card:
+          type: markdown
+          content: |
+            ## Ausgangsverzögerung läuft
+            Die Anlage wird scharf geschaltet. Türen schließen und das Haus verlassen.
+
+      # -----------------------------------------------------------------------
+      # Control and zone status, side by side.
+      #
+      # The right-hand panel is what the helper sensors would have been for: it
+      # counts the open perimeter zones and names them, computed by the card
+      # itself with Jinja - no template sensor, no package, nothing to install.
+      # It is also the reassuring "everything is closed" state, which a card
+      # that only appears on a problem can never show.
+      # -----------------------------------------------------------------------
+      - type: grid
+        columns: 2
+        square: false
+        cards:
+          # A tile with the `alarm-modes` feature instead of the classic
+          # `alarm-panel` card: same arming, a quarter of the height, and it
+          # integrates into the section grid instead of pushing everything else
+          # out of the way. While the panel is arming or triggered the feature
+          # deliberately collapses to a single Disarm button, and the tile
+          # pulses (both are built into the tile card for alarm entities).
+          #
+          # NOTE: Home Assistant asks for the code whenever `code_format` is set
+          # on the entity, which this integration always does. If you do not want
+          # that prompt, give the alarm entity a *default code*
+          # (Settings -> Devices & services -> Entities -> the alarm entity ->
+          # gear icon -> Default code). The classic keypad card stays available
+          # in the expert section.
+          - type: tile
+            entity: alarm_control_panel.security_crow_alarm_system_a
+            name: Haus Alarmsystem
+            icon: mdi:shield-home
+            state_content:
+              - state
+              - last_changed
+            features:
+              # No `modes:` list on purpose.
+              #
+              # The option is an ALLOW-list, not an addition: listing only
+              # armed_home/armed_away would remove the Disarm entry from the
+              # control and leave the tile unable to disarm. Without it the card
+              # shows every mode this panel reports, i.e. Disarm | Arm Away |
+              # Arm Home in one segmented control.
+              - type: alarm-modes
+          - type: markdown
+            content: |
+              {% set zonen = expand(
+                   'binary_sensor.crow_alarm_doors_eingangstur',
+                   'binary_sensor.crow_alarm_doors_terrassentur',
+                   'binary_sensor.crow_alarm_windows_wohnzimmer_fenster',
+                   'binary_sensor.crow_alarm_system_kuche_fenster',
+                   'binary_sensor.crow_alarm_windows_gastewc_fenster',
+                   'binary_sensor.crow_alarm_windows_schlaf_bad_fenster',
+                   'binary_sensor.crow_alarm_windows_kinder_fenster'
+                 ) | selectattr('state', 'eq', 'on') | list %}
+              {% if zonen %}
+              ## {{ zonen | length }} von 7 Zonen offen
+              {{ zonen | map(attribute='name') | join(' · ') }}
+
+              Türen und Fenster sind erst gesichert, wenn sie geschlossen sind.
+              {% else %}
+              ## Alle Zonen geschlossen
+              Türen und Fenster sind gesichert und die Anlage kann scharf
+              geschaltet werden.
+              {% endif %}
+
+  # ===========================================================================
+  #  2) DOORS - the two ways into the house.
+  # ===========================================================================
+  - type: grid
+    cards:
+      - type: heading
+        heading: Zugang & Türen
+        icon: mdi:door-open
+        heading_style: subtitle
+      - type: grid
+        columns: 2
+        square: false
+        cards:
+          # `color: red` is not the default here: Home Assistant has no
+          # dedicated state colour for the door/window device classes, they
+          # would fall back to amber. Red is reserved for the perimeter.
+          #
+          # `state_content: [state, last_changed]` shows when the zone last
+          # changed. The old dashboard tried this with
+          # `secondary_info: last-updated`, which the tile card does not have -
+          # it was silently ignored.
+          - type: tile
+            entity: binary_sensor.crow_alarm_doors_eingangstur
+            name: Eingangstür
+            icon: mdi:door
+            color: red
+            state_content:
+              - state
+              - last_changed
+          - type: tile
+            entity: binary_sensor.crow_alarm_doors_terrassentur
+            name: Terrassentür
+            icon: mdi:door-sliding
+            color: red
+            state_content:
+              - state
+              - last_changed
+
+  # ===========================================================================
+  #  3) WINDOWS - the perimeter of the ground floor and the upper floor.
+  # ===========================================================================
+  - type: grid
+    cards:
+      - type: heading
+        heading: Fenster (Perimeter)
+        icon: mdi:window-closed-variant
+        heading_style: subtitle
+      - type: grid
+        columns: 2
+        square: false
+        cards:
+          - type: tile
+            entity: binary_sensor.crow_alarm_windows_wohnzimmer_fenster
+            name: Wohnzimmer
+            icon: mdi:window-closed
+            color: red
+            state_content:
+              - state
+              - last_changed
+          - type: tile
+            entity: binary_sensor.crow_alarm_system_kuche_fenster
+            name: Küche
+            icon: mdi:window-closed
+            color: red
+            state_content:
+              - state
+              - last_changed
+          - type: tile
+            entity: binary_sensor.crow_alarm_windows_gastewc_fenster
+            name: Gäste-WC
+            icon: mdi:window-closed
+            color: red
+            state_content:
+              - state
+              - last_changed
+          - type: tile
+            entity: binary_sensor.crow_alarm_windows_schlaf_bad_fenster
+            name: Schlaf/Bad OG
+            icon: mdi:window-closed
+            color: red
+            state_content:
+              - state
+              - last_changed
+          - type: tile
+            entity: binary_sensor.crow_alarm_windows_kinder_fenster
+            name: Kinder OG
+            icon: mdi:window-closed
+            color: red
+            state_content:
+              - state
+              - last_changed
+
+  # ===========================================================================
+  #  4) MOTION - interior detectors. Informational: amber, never red, because
+  #     movement inside an armed house is normal and must not look like a
+  #     perimeter breach.
+  # ===========================================================================
+  - type: grid
+    column_span: 2
+    cards:
+      - type: heading
+        heading: Bewegung innen
+        icon: mdi:motion-sensor
+        heading_style: subtitle
+      - type: grid
+        columns: 2
+        square: false
+        cards:
+          - type: tile
+            entity: binary_sensor.bewegungsmelder_vorzimmer
+            name: Vorzimmer
+            color: amber
+            state_content: state
+          - type: tile
+            entity: binary_sensor.bewegungsmelder_keller_1
+            name: Keller 1
+            color: amber
+            state_content: state
+          - type: tile
+            entity: binary_sensor.bewegungsmelder_keller_2
+            name: Keller 2
+            color: amber
+            state_content: state
+          - type: tile
+            entity: binary_sensor.bewegungsmelder_gastewc
+            name: Gäste-WC
+            color: amber
+            state_content: state
+          - type: tile
+            entity: binary_sensor.bewegungsmelder_wc
+            name: WC
+            color: amber
+            state_content: state
+          - type: tile
+            entity: binary_sensor.bewegungsmelder_technikraum
+            name: Technikraum
+            color: amber
+            state_content: state
+          - type: tile
+            entity: binary_sensor.bewegungsmelder_wascheabwurfraum
+            name: Wäscheabwurf
+            color: amber
+            state_content: state
+          - type: tile
+            entity: binary_sensor.bewegungsmelder_lagerraum
+            name: Lagerraum
+            color: amber
+            state_content: state
+
+  # ===========================================================================
+  #  EXPERT 5) PANEL DIAGNOSTICS
+  #
+  #  Everything the integration reports about the panel itself. In the standard
+  #  view all of this is compressed into the single "Störung" banner in the
+  #  hero - these are the entities behind it.
+  #
+  #  They are all EntityCategory.DIAGNOSTIC in the integration, which is why
+  #  they do not belong on a standard dashboard.
+  # ===========================================================================
+  - type: grid
+    column_span: 2
+    visibility:
+      - condition: state
+        entity: input_boolean.expert_mode
+        state: "on"
+    cards:
+      - type: heading
+        heading: Systemstatus
+        icon: mdi:chip
+        heading_style: subtitle
+        badges:
+          - type: entity
+            entity: sensor.crow_system_status
+            color: state
+            show_state: true
+      - type: grid
+        columns: 3
+        square: false
+        cards:
+          - type: tile
+            entity: sensor.crow_system_status
+            name: Panelstatus
+            icon: mdi:shield-home
+            color: state
+            state_content: state
+          - type: tile
+            entity: binary_sensor.crow_alarm_system_mains_power
+            name: Netzstrom
+            icon: mdi:power-plug
+            color: green
+            state_content: state
+          - type: tile
+            entity: binary_sensor.crow_alarm_system_system_battery
+            name: Systembatterie
+            icon: mdi:battery-alert-variant-outline
+            color: red
+            state_content: state
+          - type: tile
+            entity: binary_sensor.crow_alarm_system_zone_battery
+            name: Zonenbatterie
+            icon: mdi:battery-check-outline
+            color: red
+            state_content: state
+          - type: tile
+            entity: binary_sensor.crow_alarm_system_system_tamper
+            name: Sabotage
+            icon: mdi:alert-decagram
+            color: red
+            state_content: state
+          - type: tile
+            entity: binary_sensor.crow_alarm_system_phone_line
+            name: Telefonleitung
+            icon: mdi:phone
+            color: red
+            state_content: state
+          - type: tile
+            entity: binary_sensor.crow_alarm_system_dialler
+            name: Wählgerät
+            icon: mdi:phone-outgoing
+            color: red
+            state_content: state
+
+  # ===========================================================================
+  #  EXPERT 6) CLASSIC KEYPAD + PANIC
+  #
+  #  The `alarm-panel` card next to the compact tile. It is the only way to
+  #  type a code on a dashboard, so it stays reachable without a detour into
+  #  the more-info dialog. It is also where the panic trigger hangs, guarded by
+  #  a confirmation.
+  #
+  #  `states:` is deliberately absent: this integration reports
+  #  ARM_HOME | ARM_AWAY | TRIGGER only, and Home Assistant renders one button
+  #  per supported mode anyway. The old file listed `arm_custom_bypass`, which
+  #  this integration does not support - that button never appeared.
+  # ===========================================================================
+  - type: grid
+    visibility:
+      - condition: state
+        entity: input_boolean.expert_mode
+        state: "on"
+    cards:
+      - type: heading
+        heading: Klassische Bedienung
+        icon: mdi:dialpad
+        heading_style: subtitle
+        badges:
+          - type: button
+            icon: mdi:alarm-light
+            text: Panik
+            color: red
+            tap_action:
+              action: perform-action
+              perform_action: alarm_control_panel.alarm_trigger
+              target:
+                entity_id: alarm_control_panel.security_crow_alarm_system_a
+              confirmation:
+                text: Panikalarm wirklich auslösen?
+      - type: alarm-panel
+        entity: alarm_control_panel.security_crow_alarm_system_a
+        name: Haus Alarmsystem
+
+  # ===========================================================================
+  #  EXPERT 7) EVENT LOG
+  #
+  #  The activity card. This is what you actually need after an alarm: who
+  #  armed, who disarmed, when, and which zone changed.
+  # ===========================================================================
+  - type: grid
+    column_span: 3
+    visibility:
+      - condition: state
+        entity: input_boolean.expert_mode
+        state: "on"
+    cards:
+      - type: heading
+        heading: Ereignisprotokoll
+        icon: mdi:history
+        heading_style: subtitle
+      - type: logbook
+        title: Letzte 72 Stunden
+        hours_to_show: 72
+        target:
+          entity_id:
+            - alarm_control_panel.security_crow_alarm_system_a
+            - binary_sensor.crow_alarm_doors_eingangstur
+            - binary_sensor.crow_alarm_doors_terrassentur
+            - binary_sensor.crow_alarm_windows_wohnzimmer_fenster
+            - binary_sensor.crow_alarm_system_kuche_fenster
+            - binary_sensor.crow_alarm_windows_gastewc_fenster
+            - binary_sensor.crow_alarm_windows_schlaf_bad_fenster
+            - binary_sensor.crow_alarm_windows_kinder_fenster
+            - binary_sensor.crow_alarm_system_system_tamper
+
+  # ===========================================================================
+  #  EXPERT 8) ZONE HISTORY
+  #  One bar per zone: open intervals are visible as blocks, so you can see at
+  #  a glance whether a door was open all night or for two minutes.
+  # ===========================================================================
+  - type: grid
+    column_span: 3
+    visibility:
+      - condition: state
+        entity: input_boolean.expert_mode
+        state: "on"
+    cards:
+      - type: heading
+        heading: Zonenverlauf
+        icon: mdi:chart-timeline-variant
+        heading_style: subtitle
+      - type: history-graph
+        title: Letzte 24 Stunden
+        hours_to_show: 24
+        entities:
+          - entity: alarm_control_panel.security_crow_alarm_system_a
+            name: Alarmanlage
+          - entity: binary_sensor.crow_alarm_doors_eingangstur
+            name: Eingangstür
+          - entity: binary_sensor.crow_alarm_doors_terrassentur
+            name: Terrassentür
+          - entity: binary_sensor.crow_alarm_windows_wohnzimmer_fenster
+            name: Wohnzimmer
+          - entity: binary_sensor.crow_alarm_system_kuche_fenster
+            name: Küche
+          - entity: binary_sensor.crow_alarm_windows_gastewc_fenster
+            name: Gäste-WC
+          - entity: binary_sensor.crow_alarm_windows_schlaf_bad_fenster
+            name: Schlaf/Bad OG
+          - entity: binary_sensor.crow_alarm_windows_kinder_fenster
+            name: Kinder OG

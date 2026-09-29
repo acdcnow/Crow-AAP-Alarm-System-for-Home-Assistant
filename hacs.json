@@ -3,9 +3,5 @@
   "content_in_root": false,
   "zip_release": true,
   "render_readme": true,
-  "homeassistant": "2026.9.0",
-  "iot_class": "local_push",
-  "domains": [
-    "crowipmodule"
-  ]
+  "homeassistant": "2026.9.3"
 }
