@@ -48,8 +48,23 @@ Home Assistant 2026.8 or older should stay on `2.0.0`.
   repository is replaced by `.github/workflows/verify.yml`. The old one pinned
   Python 3.10 (this integration targets Home Assistant 2026.9, which requires
   3.14.2+) and ran `pytest` over a repository that contains no pytest tests, so
-  it could only ever fail. The new workflow runs the three real harnesses on
+  it could only ever fail. The new workflow runs the project's harnesses on
   Python 3.14.
+* **`hacs.json` no longer sets `zip_release`.** The key was inherited from the
+  old `master` line (added there on 2026-09-14) and had no `filename` next to
+  it. HACS rejects exactly that combination - "zip_release is True, but
+  filename is not set" - and the download step then called `endswith` on the
+  missing filename, so **every** install and update failed with
+  `Failed to perform the action update/install. 'NoneType' object has no
+  attribute 'endswith'`. An integration ships its source rather than a release
+  asset, so the key is not needed at all. `tests/verify_hacs_manifest.py` now
+  validates `hacs.json` and `manifest.json` against HACS's own schemas, and CI
+  runs it, so this cannot come back unnoticed.
+
+  > The `2.1.0` tag was moved onto this fix and the release was published
+  > again. HACS downloads by tag, so a repository that was already fetched needs
+  > *Redownload* (or *Update*, if HACS still offers it) after refreshing the
+  > repository list.
 
 ## [2.1.0-beta.2] - 2026-09-21
 

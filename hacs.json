@@ -1,7 +1,5 @@
 {
   "name": "Crow/AAP Alarm IP Module",
-  "content_in_root": false,
-  "zip_release": true,
   "render_readme": true,
   "homeassistant": "2026.9.3"
 }

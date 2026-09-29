@@ -43,3 +43,6 @@ jobs:
 
       - name: Config flow and translations
         run: python tests/verify_config_flow.py
+
+      - name: HACS metadata (hacs.json + manifest.json)
+        run: python tests/verify_hacs_manifest.py
