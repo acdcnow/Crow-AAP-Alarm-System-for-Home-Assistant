@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.1.1] - 2026-10-09
+
+### 🛠 Changed
+
+* **New brand images, built from the project banner.** The **whole** artwork is
+  shown now: it is scaled into the logo canvas, and the strips the different
+  aspect ratio leaves over are filled with a continuation of the banner's own
+  background (the picture's edge band is mirrored and faded out towards the
+  rim), so nothing is cut off and no seam is visible. `icon.png` / `icon@2x.png`
+  (256x256 / 512x512), `logo.png` / `logo@2x.png` (342x160 / 684x320) and the
+  matching `dark_logo*` files were all replaced.
+
+No code change - this release only refreshes the assets HACS and the README
+show.
+
 ## [2.1.0] - 2026-09-30
 
 First **stable** release of the Home Assistant 2026.9 line. It contains
