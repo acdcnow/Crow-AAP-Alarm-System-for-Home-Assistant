@@ -194,6 +194,11 @@ class SelectSelectorConfig:
         self.extra = kwargs
 
 
+class SelectSelectorMode(enum.StrEnum):
+    DROPDOWN = "dropdown"
+    LIST = "list"
+
+
 class SelectSelector:
     def __init__(self, config):
         self.config = config
@@ -207,6 +212,7 @@ class SelectSelector:
 sel = mod("homeassistant.helpers.selector")
 sel.SelectSelector = SelectSelector
 sel.SelectSelectorConfig = SelectSelectorConfig
+sel.SelectSelectorMode = SelectSelectorMode
 ha_helpers.selector = sel
 
 dr = mod("homeassistant.helpers.device_registry")
@@ -323,28 +329,76 @@ async def drive_config_flow() -> dict:
     result = await flow.async_step_outputs({"output_1_name": "Gate", "output_2_name": "Siren"})
     check("zones step follows outputs", result["step_id"] == "zones", result["step_id"])
 
-    # 5 zones at PAGE_SIZE=4 -> two pages.
-    page_keys: set[str] = set()
-    result = await flow.async_step_zones({"zone_1_name": "Front Door", "zone_1_type": "door",
-                                         "zone_2_name": "Kitchen", "zone_2_type": "motion",
-                                         "zone_3_name": "Window", "zone_3_type": "window",
-                                         "zone_4_name": "Smoke", "zone_4_type": "smoke"})
-    check("zones step paginates", result["step_id"] == "zones", result["step_id"])
-    page_keys |= set(schema_keys(result["data_schema"]))
+    # All configured zones live in this one step: there is no page counter that a
+    # form submission could get out of sync with.
+    zone_keys = set(schema_keys(result["data_schema"]))
+    check(
+        "all zones render in a single step",
+        zone_keys == {f"zone_{i}_{f}" for i in range(1, 6) for f in ("name", "type")},
+        str(sorted(zone_keys)),
+    )
 
-    result = await flow.async_step_zones({"zone_5_name": "Office", "zone_5_type": "motion"})
-    check("flow finishes after the last page", result["type"] is FlowResultType.CREATE_ENTRY,
-          str(result["type"]))
+    zone_selector = validator_for(result["data_schema"], "zone_4_type")
+    check(
+        "the zone type renders as a select selector",
+        isinstance(zone_selector, SelectSelector),
+        type(zone_selector).__name__,
+    )
+    check(
+        "the zone type selector offers every supported type",
+        sorted(zone_selector.config.options) == sorted(cf.ZONE_TYPES),
+        str(zone_selector.config.options),
+    )
+    check(
+        "the zone type selector uses a translation key",
+        zone_selector.config.translation_key == cf.ZONE_TYPE_SELECTOR,
+        str(zone_selector.config.translation_key),
+    )
+    check("the zone type selector rejects an unknown type", _rejects(zone_selector, "elevator"))
+    check(
+        "the zone type selector accepts every supported type",
+        all(zone_selector(zone_type) == zone_type for zone_type in cf.ZONE_TYPES),
+    )
 
     all_zone_labels = translation_keys("config", "zones")
     check(
         "every rendered zone field has a label",
-        page_keys <= all_zone_labels,
-        str(page_keys - all_zone_labels),
+        zone_keys <= all_zone_labels,
+        str(zone_keys - all_zone_labels),
     )
     check("zone types cover all supported classes",
           set(cf.ZONE_TYPES) == {"window", "motion", "door", "smoke", "gas", "co", "tamper", "safety"},
           str(cf.ZONE_TYPES))
+
+    entered = {
+        1: ("Front Door", "door"),
+        2: ("Kitchen", "motion"),
+        3: ("Window", "window"),
+        4: ("Smoke", "smoke"),
+        5: ("Office", "gas"),
+    }
+    result = await flow.async_step_zones(
+        {
+            key: value
+            for index, (name, zone_type) in entered.items()
+            for key, value in ((f"zone_{index}_name", name), (f"zone_{index}_type", zone_type))
+        }
+    )
+    check("flow finishes after the zone step", result["type"] is FlowResultType.CREATE_ENTRY,
+          str(result["type"]))
+    stored = result["options"]["zones"]
+    check(
+        "every zone keeps the type it was entered with",
+        {key: value["type"] for key, value in stored.items()}
+        == {str(index): zone_type for index, (_, zone_type) in entered.items()},
+        str({key: value["type"] for key, value in stored.items()}),
+    )
+    check(
+        "every zone keeps the name it was entered with",
+        {key: value["name"] for key, value in stored.items()}
+        == {str(index): name for index, (name, _) in entered.items()},
+        str({key: value["name"] for key, value in stored.items()}),
+    )
     check("firmware_date derived from profile",
           result["data"]["firmware_date"] == cf.FIRMWARE_PROFILES["Ver 2.10.3628 2017"],
           result["data"].get("firmware_date"))
@@ -365,7 +419,10 @@ async def drive_options_flow(created: dict) -> None:
     check("options flow is an OptionsFlow", isinstance(flow, cf.CrowOptionsFlowHandler))
 
     flow.hass = types.SimpleNamespace(
-        async_add_executor_job=lambda func, *args: asyncio.sleep(0, result=True)
+        async_add_executor_job=lambda func, *args: asyncio.sleep(0, result=True),
+        config_entries=types.SimpleNamespace(
+            async_update_entry=lambda entry, **kwargs: None
+        ),
     )
     flow.config_entry = entry
 
@@ -385,6 +442,25 @@ async def drive_options_flow(created: dict) -> None:
     check("options outputs step follows areas", result["step_id"] == "outputs", result["step_id"])
     result = await flow.async_step_outputs({"output_1_name": "Gate", "output_2_name": "Siren"})
     check("options zones step follows outputs", result["step_id"] == "zones", result["step_id"])
+    check(
+        "options zones labels translated",
+        set(schema_keys(result["data_schema"])) <= translation_keys("options", "zones"),
+        str(set(schema_keys(result["data_schema"])) - translation_keys("options", "zones")),
+    )
+
+    # Only the touched zone is part of the submitted form; the rest must survive.
+    result = await flow.async_step_zones({"zone_2_name": "Kitchen", "zone_2_type": "door"})
+    check("options flow finishes after the zone step",
+          result["type"] is FlowResultType.CREATE_ENTRY, str(result["type"]))
+    stored = result["data"]["zones"]
+    check("options flow stores the changed zone type", stored["2"]["type"] == "door",
+          str(stored.get("2")))
+    check(
+        "options flow keeps zones that were not part of the form",
+        {key: value["type"] for key, value in stored.items()}
+        == {"1": "door", "2": "door", "3": "window", "4": "smoke", "5": "gas"},
+        str({key: value["type"] for key, value in stored.items()}),
+    )
 
 
 async def main() -> None:
@@ -415,6 +491,13 @@ async def main() -> None:
         str(option_labels),
     )
 
+    zone_labels = STRINGS.get("selector", {}).get(cf.ZONE_TYPE_SELECTOR, {}).get("options", {})
+    check(
+        "strings.json labels every zone type option",
+        set(zone_labels) == set(cf.ZONE_TYPES) and all(zone_labels.values()),
+        str(zone_labels),
+    )
+
     for lang in ("de", "es", "fr", "it"):
         data = json.loads(
             (INTEGRATION / "crowipmodule" / "translations" / f"{lang}.json").read_text(encoding="utf-8")
@@ -432,6 +515,12 @@ async def main() -> None:
             f"{lang}.json translates every arm sequence option",
             set(lang_options) == set(cf.ARM_SEQUENCES) and all(lang_options.values()),
             str(lang_options),
+        )
+        lang_zone_labels = data.get("selector", {}).get(cf.ZONE_TYPE_SELECTOR, {}).get("options", {})
+        check(
+            f"{lang}.json translates every zone type option",
+            set(lang_zone_labels) == set(cf.ZONE_TYPES) and all(lang_zone_labels.values()),
+            str(lang_zone_labels),
         )
         check(
             f"{lang}.json labels the arm_sequence field in both steps",

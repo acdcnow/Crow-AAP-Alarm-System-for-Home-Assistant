@@ -5,6 +5,18 @@
         "command_only": "Command only (panel arms immediately)",
         "command_then_keypad": "Command, then code + Enter (panel waits for the code)"
       }
+    },
+    "zone_type": {
+      "options": {
+        "window": "Window",
+        "motion": "Motion",
+        "door": "Door",
+        "smoke": "Smoke",
+        "gas": "Gas",
+        "co": "Carbon monoxide",
+        "tamper": "Tamper",
+        "safety": "Safety"
+      }
     }
   },
   "config": {

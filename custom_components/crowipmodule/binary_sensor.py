@@ -152,6 +152,22 @@ def _async_align_zone_entities(
             config_entry_id=entry.config_entry_id,
             **zone_device_info(runtime_data, host, zone_type),
         )
+
+        expected_name = zone_device_name(zone_type)
+        if device.name != expected_name:
+            # A device keeps the name it was created with - Home Assistant does not
+            # rename it when the integration reports another one later. A group
+            # device created by an older build under a swapped name would keep
+            # handing that name to every entity id generated from it, which is
+            # exactly how a window zone ends up called ``..._doors_<name>``.
+            _LOGGER.warning(
+                "Device %s is named %r but should be %r - correcting the name",
+                device.id,
+                device.name,
+                expected_name,
+            )
+            device = devices.async_update_device(device.id, name=expected_name)
+
         entry = registry.async_update_entity(entity_id, device_id=device.id)
 
         if not _entity_id_was_generated_for_another_type(entry.entity_id, zone_type):
@@ -200,6 +216,19 @@ async def async_setup_entry(
     if not configured_zones:
         for i in range(1, 17):
             configured_zones[str(i)] = {"name": f"Zone {i}", "type": "window"}
+
+    # One line with the zone -> type map the entities below are built from, so a
+    # zone that is grouped unexpectedly can be traced back to its stored type.
+    _LOGGER.info(
+        "Zone types: %s",
+        ", ".join(
+            f"{key} {info.get('name')!r}={info.get('type')}"
+            for key, info in sorted(
+                configured_zones.items(),
+                key=lambda item: int(item[0]) if str(item[0]).isdigit() else 0,
+            )
+        ),
+    )
 
     # Bring zone entities that were registered under an earlier type onto the
     # device of the type the zone has now (before they are added again).

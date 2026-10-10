@@ -2,7 +2,7 @@
 
 **Project:** Crow/AAP Alarm IP Module for Home Assistant
 **Integration domain:** `crowipmodule`
-**Branch:** `master` · **Version:** `2.1.2` · **Status:** released
+**Branch:** `master` · **Version:** `2.1.3` · **Status:** released
 **Last updated:** 2026-10-10
 
 This document specifies **how** the integration is built: modules, signatures, data shapes,
@@ -502,11 +502,16 @@ Before the zone entities are created, `async_setup_entry` therefore walks `optio
 for every existing registry entry (`unique_id` = `zone_unique_id(n)`, scoped to the entry via
 `runtime_data.entry_id`):
 
-1. creates/gets the device of the type the zone has **now** and writes it as the entry's
-   `device_id`;
+1. creates/gets the device of the type the zone has **now**, corrects its `name` when it does not
+   match the type (`async_update_device` - a device keeps the name it was created with, and that
+   name is what every entity id generated from it is built from) and writes the device as the
+   entry's `device_id`;
 2. if the entity id still starts with another zone type's device name
    (`_entity_id_was_generated_for_another_type`), rebuilds it with
    `entity_registry.async_regenerate_entity_id()` and renames the entry.
+
+The flow also logs the zone → type map it is working from (`Zone types: 1 'Eingangstür'=door, ...`),
+so a zone that is grouped unexpectedly can be traced back to the type actually stored for it.
 
 An id the user chose themselves never matches another zone device's prefix, so it is moved but
 never renamed. Every correction is logged at info level. `zone_device_info()` is the single
@@ -577,7 +582,7 @@ Relays are created unconditionally by the platform (unlike switches, which follo
 
 ### 8.1 Config flow — `CrowConfigFlow`
 
-`VERSION = 1`. Five steps, `PAGE_SIZE = 4` zones per page.
+`VERSION = 1`. Four steps; the zone step holds **all** zones at once.
 
 ```mermaid
 stateDiagram-v2
@@ -586,7 +591,6 @@ stateDiagram-v2
     areas --> outputs
     outputs --> zones : count == 0
     outputs --> zones
-    zones --> zones : next page
     zones --> [*] : async_create_entry
 ```
 
@@ -595,7 +599,17 @@ stateDiagram-v2
 | `user` | `host`, `port`, `keepalive_interval`, `timeout`, `firmware_version`, `arm_sequence`, `number_of_areas`, `number_of_outputs`, `number_of_zones` |
 | `areas` | `area_{i}_name` (required), `area_{i}_code` (optional) for `i = 1..number_of_areas` |
 | `outputs` | `output_{i}_name` for `i = 1..number_of_outputs` (skipped entirely when the count is 0) |
-| `zones` | `zone_{i}_name`, `zone_{i}_type` for the current 4-zone page |
+| `zones` | `zone_{i}_name`, `zone_{i}_type` for `i = 1..number_of_zones` |
+
+**Zone step.** `zone_schema(count, zones)` renders one name/type pair per zone in zone order and
+`merge_zones(target, user_input)` writes the submitted form back, mapping every field through
+`_ZONE_FIELD` (`^zone_(\d+)_(name|type)$`) - never through the position of the field on the form.
+`zone_{i}_type` is a `SelectSelector` (`translation_key="zone_type"`), so the dropdown shows
+*Fenster* / *Tür* / *Bewegung* while the **stored** value stays the plain type string from
+`ZONE_TYPES` that `ZONE_DEVICES` and the device classes are keyed by. Earlier releases split the
+zones over pages of four and tracked the current page in the flow handler; the page then depended on
+hidden state instead of on the form the user had in front of them, so a step back could skip a page
+or mis-assign a type. There is no page state any more.
 
 **Unique ID** is `f"{host}_{port}"`; a duplicate aborts with `already_configured`.
 

@@ -5,6 +5,18 @@
         "command_only": "Solo comando (la central se arma de inmediato)",
         "command_then_keypad": "Comando y luego código + Intro (la central espera el código)"
       }
+    },
+    "zone_type": {
+      "options": {
+        "window": "Ventana",
+        "motion": "Movimiento",
+        "door": "Puerta",
+        "smoke": "Humo",
+        "gas": "Gas",
+        "co": "Monóxido de carbono",
+        "tamper": "Sabotaje",
+        "safety": "Seguridad"
+      }
     }
   },
   "config": {

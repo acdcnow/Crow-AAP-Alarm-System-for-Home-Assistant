@@ -5,6 +5,18 @@
         "command_only": "Solo comando (la centrale si arma subito)",
         "command_then_keypad": "Comando, poi codice + Invio (la centrale attende il codice)"
       }
+    },
+    "zone_type": {
+      "options": {
+        "window": "Finestra",
+        "motion": "Movimento",
+        "door": "Porta",
+        "smoke": "Fumo",
+        "gas": "Gas",
+        "co": "Monossido di carbonio",
+        "tamper": "Sabotaggio",
+        "safety": "Sicurezza"
+      }
     }
   },
   "config": {

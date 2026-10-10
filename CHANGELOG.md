@@ -1,49 +1,74 @@
 # Changelog
 
+## [2.1.3] - 2026-10-10
+
+Repairs the zone devices and entity ids of installations whose zones were re-typed after
+their entities had been created, and rewrites the zone part of the config/options flow.
+Supersedes `2.1.2` (published and withdrawn the same day).
+
+### 🔧 Fixed
+
+* **A zone device now carries its own name for good.** Home Assistant uses the name a
+  device was *created* with - a later `name` in the device info is ignored - and it builds
+  an entity id from that name. A group device that was created by an older build with the
+  other type's name therefore kept handing that name to every entity id generated from it,
+  which is how a window zone ends up as `binary_sensor.crow_alarm_doors_<name>` and shows
+  up under the doors device. The integration now compares the name of each zone device with
+  the name its type requires and corrects it (an integration name is updated, a name you
+  set yourself is never touched), logging the correction.
+* **Existing zone entities follow their zone's type.** An entity is linked to a device - and
+  gets its entity id - only when it is registered for the **first time**; afterwards Home
+  Assistant fixes the `device_id` at most, never the entity id. On every setup the
+  integration now re-derives the device from the configured type and rebuilds the entity id
+  when it was generated for another zone type's device, so
+  `binary_sensor.crow_alarm_windows_terrassentur` becomes
+  `binary_sensor.crow_alarm_doors_terrassentur`. An id you chose yourself is moved but never
+  renamed, and every correction is logged.
+* **The zone list is logged on every setup** (`Zone types: 1 'Eingangstür'=door, ...`), so a
+  zone that is grouped unexpectedly can be traced to the type that is actually stored for it.
+
+### 🛠 Changed
+
+* **The zone step of the config and options flow was rewritten.** All zones are configured
+  in **one** step instead of pages of four, so there is no page counter any more that a form
+  submission could get out of sync with.
+* The zone **type** is now a translated dropdown (*Fenster*, *Tür*, *Bewegung*, ...) instead
+  of the raw values `window` / `door` / `motion`.
+* Each field is mapped back by its own name (`zone_7_type` -> zone `7`), so a value can only
+  ever be stored on the zone it was entered for, and zones that are not part of the form keep
+  the value they have instead of being dropped.
+
+> **After updating:** restart Home Assistant once so the devices and entities are corrected -
+> the log then shows the `Zone types: ...` line and one line per correction. Zones whose type
+> is still wrong can now be fixed in **Configure** (the type dropdown is the second field of
+> each zone); saving moves and renames the entity automatically.
+
 ## [2.1.2] - 2026-10-10
 
 ### 🔧 Fixed
 
-* **Existing zone entities now follow their zone's type.** Home Assistant links an
-  entity to a device - and derives its entity id from that device's name - only when
-  the entity is registered for the **first time**. An entity created while a zone
-  still had another type therefore kept the old device *and* an entity id naming it,
-  so a door zone could sit on the *Crow Alarm Windows* device as
-  `binary_sensor.crow_alarm_windows_terrassentur` no matter what the config flow said.
-  On every setup the integration now re-derives the device **and** the entity id from
-  the configured type, so the zone ends up on its own type's device with a matching
-  entity id (`binary_sensor.crow_alarm_doors_terrassentur`). The entity id is only
-  rebuilt when it still carries another zone type's device name, so an id you chose
-  yourself is never overwritten; every correction is logged as an info line.
-* **Zone sub-devices are grouped per zone type again.** A zone is now registered on
-  the device that matches its **configured type**: `window` -> *Crow Alarm Windows*,
-  `door` -> *Crow Alarm Doors*, `motion` -> *Crow Alarm Motion*, `smoke` ->
-  *Crow Alarm Smoke*, and likewise for `gas`, `co`, `tamper` and `safety`. Because the
-  device name carries the type, `has_entity_name` puts the type into the entity's own
-  name and entity id - a window zone can no longer be listed under the doors device,
-  and a door zone not under the windows device.
-* Grouping now reads the zone type directly (`const.ZONE_DEVICES`) instead of deriving
-  it from the binary-sensor device class, so the two can no longer drift apart.
+* **Zone sub-devices are grouped per zone type.** A zone is registered on the device that
+  matches its **configured type**: `window` -> *Crow Alarm Windows*, `door` ->
+  *Crow Alarm Doors*, `motion` -> *Crow Alarm Motion*, `smoke` -> *Crow Alarm Smoke*, and
+  likewise for `gas`, `co`, `tamper` and `safety`, so the type is part of the device name and
+  - through `has_entity_name` - of the entity name and entity id.
+* Grouping reads the zone type directly (`const.ZONE_DEVICES`) instead of deriving it from the
+  binary-sensor device class, so the two can no longer drift apart.
 
 ### 🛠 Changed
 
-* Previously every zone that was not a window or a door (motion, smoke, gas, CO,
-  tamper, safety) was lumped onto a single *Crow Alarm Sensors* device, which made it
-  impossible to tell the types apart in the device list. Each type now has its own
+* Previously every zone that was not a window or a door (motion, smoke, gas, CO, tamper,
+  safety) was lumped onto a single *Crow Alarm Sensors* device. Each type now has its own
   device. *Crow Alarm Sensors* remains as the fallback for an unknown type, and the
-  `crow_windows` / `crow_doors` identifiers are unchanged, so the doors and windows
-  devices are picked up as-is on update.
-* Zone types are now declared once, in `const.py` (`ZONE_TYPES`, `ZONE_DEVICES`), and
-  consumed by the config flow and the binary-sensor platform.
+  `crow_windows` / `crow_doors` identifiers are unchanged, so the doors and windows devices
+  are picked up as-is on update.
+* Zone types are now declared once, in `const.py` (`ZONE_TYPES`, `ZONE_DEVICES`), and consumed
+  by the config flow and the binary-sensor platform.
 * **New brand images.** `icon.png` / `icon@2x.png` (256x256 / 512x512) and
-  `logo(.dark)?(_@2x)?.png` (342x160 / 684x320) were rebuilt from the current
-  project banner. The whole artwork is shown: it is scaled into the canvas and the
-  strips the different aspect ratio leaves over are filled with a continuation of the
-  banner's own background (the edge band is mirrored and faded towards the rim).
-
-> **After updating:** reload the integration (or restart Home Assistant) once so the
-> zone entities are re-registered and the repair above runs. An empty *Crow Alarm
-> Sensors* device left over from 2.1.1 can simply be deleted.
+  `logo(.dark)?(_@2x)?.png` (342x160 / 684x320) were rebuilt from the current project banner.
+  The whole artwork is shown: it is scaled into the canvas and the strips the different aspect
+  ratio leaves over are filled with a continuation of the banner's own background (the edge
+  band is mirrored and faded towards the rim).
 
 ## [2.1.1] - 2026-10-09
 

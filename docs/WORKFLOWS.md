@@ -203,7 +203,6 @@ stateDiagram-v2
     areas --> outputs
     outputs --> zones : number_of_outputs is 0
     outputs --> zones
-    zones --> zones : next 4-zone page
     zones --> [*] : async_create_entry
 ```
 
@@ -218,7 +217,8 @@ stateDiagram-v2
     zones_opt --> [*] : create entry, then async_reload
 ```
 
-Zone pages are 4 fields wide (`PAGE_SIZE = 4`), so 16 zones produce four form pages.
+All zones are configured in the single `zones` step - one name/type pair per zone, mapped back
+through the field names - so no page state has to be kept in the flow handler.
 
 ---
 
@@ -252,7 +252,7 @@ flowchart LR
     A["compileall<br/>syntax across the integration"]
     B["test_crow_protocol.py<br/>wire formats, RX parsing, loopback"]
     C["tests/verify_ha_2026_contract.py<br/>platforms, DeviceInfo, alarm_state"]
-    D["tests/verify_config_flow.py<br/>flow steps, pagination, translations"]
+    D["tests/verify_config_flow.py<br/>flow steps, zone form, translations"]
     E["HACS plus live panel<br/>manual smoke test"]
 
     A --> B --> C --> D --> E

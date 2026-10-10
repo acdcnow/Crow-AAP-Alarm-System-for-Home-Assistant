@@ -1,5 +1,6 @@
 """Config flow for Crow IP Module integration."""
 import logging
+import re
 import socket
 
 import voluptuous as vol
@@ -40,7 +41,80 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-PAGE_SIZE = 4
+# Zone type strings and the device they group into are declared in const.py
+# (ZONE_TYPES / ZONE_DEVICES); the flow only picks the type.
+DEFAULT_ZONE_TYPE = "window"
+
+# Translation key of the zone type dropdown: the option labels live in
+# ``selector.zone_type.options`` in strings.json / translations.
+ZONE_TYPE_SELECTOR = "zone_type"
+
+# A zone field is named ``zone_<index>_<field>``. The index is parsed out of the
+# field name, so a submitted value can only ever be stored on the zone it was
+# entered for - never on the zone that happens to sit at the same position of a
+# form page.
+_ZONE_FIELD = re.compile(r"^zone_(\d+)_(name|type)$")
+
+
+def _zone_type_selector() -> selector.SelectSelector:
+    """Dropdown for the type of one zone.
+
+    The stored value stays the plain type string from ``ZONE_TYPES`` (that is
+    what the zone devices and device classes are keyed by), but the dropdown
+    shows a translated label instead of the raw value.
+    """
+    return selector.SelectSelector(
+        selector.SelectSelectorConfig(
+            options=ZONE_TYPES,
+            translation_key=ZONE_TYPE_SELECTOR,
+            mode=selector.SelectSelectorMode.DROPDOWN,
+        )
+    )
+
+
+def zone_schema(count: int, zones: dict) -> vol.Schema:
+    """Build the zone form: one name/type pair per zone, in zone order.
+
+    All zones are configured in a single step. Earlier releases spread them over
+    pages of four and tracked the current page in the flow handler, which made
+    the page depend on hidden state rather than on the form the user submitted.
+    """
+    schema = {}
+    for i in range(1, count + 1):
+        zone = zones.get(str(i), {})
+        schema[
+            vol.Optional(
+                f"zone_{i}_name",
+                description={"suggested_value": zone.get("name", "")},
+            )
+        ] = str
+        schema[
+            vol.Optional(
+                f"zone_{i}_type",
+                default=zone.get("type", DEFAULT_ZONE_TYPE),
+            )
+        ] = _zone_type_selector()
+    return vol.Schema(schema)
+
+
+def merge_zones(target: dict, user_input) -> None:
+    """Store a submitted zone form into ``target``, keyed by the zone index.
+
+    Every field is re-derived from its own name, so the mapping between a zone
+    and its type cannot shift - not when the zone count changes, not when the
+    form is re-submitted, and not when a zone was left untouched (its stored
+    value then simply stays in place).
+    """
+    for key, value in (user_input or {}).items():
+        if (match := _ZONE_FIELD.match(key)) is None:
+            continue
+        index, field = match.groups()
+        target.setdefault(str(index), {})[field] = value
+
+
+def existing_zones(entry) -> dict:
+    """Return the stored zone map of a config entry, as plain dicts."""
+    return {str(k): dict(v) for k, v in (entry.options.get(CONF_ZONES) or {}).items()}
 
 
 def _arm_sequence_selector() -> selector.SelectSelector:
@@ -74,7 +148,6 @@ class CrowConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def __init__(self):
         self._data = {}
         self._options = {}
-        self._zone_page = 0
 
     async def async_step_user(self, user_input=None):
         """Step 1: Connection details and counts."""
@@ -150,7 +223,6 @@ class CrowConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if count == 0:
             self._options[CONF_OUTPUTS] = {}
-            self._zone_page = 0
             return await self.async_step_zones()
 
         if user_input is not None:
@@ -161,7 +233,6 @@ class CrowConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     outputs_config[str(i)] = {"name": name}
             
             self._options[CONF_OUTPUTS] = outputs_config
-            self._zone_page = 0
             return await self.async_step_zones()
 
         schema = {}
@@ -172,37 +243,21 @@ class CrowConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(step_id="outputs", data_schema=vol.Schema(schema))
 
     async def async_step_zones(self, user_input=None):
+        """Step 4: name and type of every zone, as one list of zone pairs."""
         count = self._data.get(CONF_NUM_ZONES, DEFAULT_NUM_ZONES)
-        
-        if user_input is not None:
-            for key, value in user_input.items():
-                if key.startswith("zone_") and key.endswith("_name"):
-                    idx = key.split("_")[1]
-                    if idx not in self._options[CONF_ZONES]:
-                        self._options[CONF_ZONES][idx] = {}
-                    self._options[CONF_ZONES][idx]["name"] = value
-                elif key.startswith("zone_") and key.endswith("_type"):
-                    idx = key.split("_")[1]
-                    if idx not in self._options[CONF_ZONES]:
-                        self._options[CONF_ZONES][idx] = {}
-                    self._options[CONF_ZONES][idx]["type"] = value
-            self._zone_page += 1
 
-        start_idx = self._zone_page * PAGE_SIZE + 1
-        if start_idx > count:
+        if user_input is not None:
+            merge_zones(self._options[CONF_ZONES], user_input)
             return self.async_create_entry(
                 title=self._data[CONF_HOST],
                 data=self._data,
-                options=self._options
+                options=self._options,
             )
 
-        end_idx = min(start_idx + PAGE_SIZE - 1, count)
-        schema = {}
-        for i in range(start_idx, end_idx + 1):
-            schema[vol.Optional(f"zone_{i}_name")] = str
-            schema[vol.Optional(f"zone_{i}_type", default="window")] = vol.In(ZONE_TYPES)
-
-        return self.async_show_form(step_id="zones", data_schema=vol.Schema(schema))
+        return self.async_show_form(
+            step_id="zones",
+            data_schema=zone_schema(count, self._options[CONF_ZONES]),
+        )
 
     @staticmethod
     @callback
@@ -214,7 +269,17 @@ class CrowOptionsFlowHandler(config_entries.OptionsFlow):
     def __init__(self):
         self._temp_data = {}
         self._temp_options = {}
-        self._zone_page = 0
+
+    def _zone_source(self) -> dict:
+        """Stored zones overlaid with what this flow already collected.
+
+        A zone that is not part of the submitted form keeps the value it has now
+        instead of being dropped.
+        """
+        merged = existing_zones(self.config_entry)
+        for index, fields in (self._temp_options.get(CONF_ZONES) or {}).items():
+            merged.setdefault(str(index), {}).update(fields)
+        return merged
 
     async def async_step_init(self, user_input=None):
         if user_input is not None:
@@ -280,8 +345,6 @@ class CrowOptionsFlowHandler(config_entries.OptionsFlow):
 
         if count == 0:
             self._temp_options[CONF_OUTPUTS] = {}
-            self._zone_page = 0
-            self._temp_options[CONF_ZONES] = {}
             return await self.async_step_zones()
 
         if user_input is not None:
@@ -291,8 +354,6 @@ class CrowOptionsFlowHandler(config_entries.OptionsFlow):
                 if name:
                     self._temp_options[CONF_OUTPUTS][str(i)] = {"name": name}
             
-            self._zone_page = 0
-            self._temp_options[CONF_ZONES] = {}
             return await self.async_step_zones()
 
         existing = self.config_entry.options.get(CONF_OUTPUTS, {})
@@ -305,25 +366,15 @@ class CrowOptionsFlowHandler(config_entries.OptionsFlow):
         return self.async_show_form(step_id="outputs", data_schema=vol.Schema(schema))
 
     async def async_step_zones(self, user_input=None):
+        """Name and type of every zone, in one list of zone pairs."""
         count = self._temp_data.get(CONF_NUM_ZONES, DEFAULT_NUM_ZONES)
-        
-        if user_input is not None:
-            for key, value in user_input.items():
-                if key.startswith("zone_") and key.endswith("_name"):
-                    idx = key.split("_")[1]
-                    if idx not in self._temp_options[CONF_ZONES]:
-                        self._temp_options[CONF_ZONES][idx] = {}
-                    self._temp_options[CONF_ZONES][idx]["name"] = value
-                elif key.startswith("zone_") and key.endswith("_type"):
-                    idx = key.split("_")[1]
-                    if idx not in self._temp_options[CONF_ZONES]:
-                        self._temp_options[CONF_ZONES][idx] = {}
-                    self._temp_options[CONF_ZONES][idx]["type"] = value
-            self._zone_page += 1
 
-        start_idx = self._zone_page * PAGE_SIZE + 1
-        
-        if start_idx > count:
+        if user_input is not None:
+            merged = self._zone_source()
+            merge_zones(merged, user_input)
+            # Zones the user did not touch stay exactly as they are.
+            self._temp_options[CONF_ZONES] = merged
+
             new_data = self.config_entry.data.copy()
             new_data.update(self._temp_data)
             # Only update entry.data here; options are saved by async_create_entry below.
@@ -333,16 +384,7 @@ class CrowOptionsFlowHandler(config_entries.OptionsFlow):
             # automatically triggers update_listener → reload. No manual reload needed.
             return self.async_create_entry(title="", data=self._temp_options)
 
-        existing_zones = self.config_entry.options.get(CONF_ZONES, {})
-        end_idx = min(start_idx + PAGE_SIZE - 1, count)
-        
-        schema = {}
-        for i in range(start_idx, end_idx + 1):
-            d = existing_zones.get(str(i), {})
-            current_name = d.get("name", "")
-            current_type = d.get("type", "window") 
-            
-            schema[vol.Optional(f"zone_{i}_name", description={"suggested_value": current_name})] = str
-            schema[vol.Optional(f"zone_{i}_type", default=current_type)] = vol.In(ZONE_TYPES)
-
-        return self.async_show_form(step_id="zones", data_schema=vol.Schema(schema))
+        return self.async_show_form(
+            step_id="zones",
+            data_schema=zone_schema(count, self._zone_source()),
+        )

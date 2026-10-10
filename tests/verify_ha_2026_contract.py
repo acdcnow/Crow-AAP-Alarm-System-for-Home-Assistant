@@ -161,6 +161,13 @@ class FakeDeviceRegistry:
             self.created.append({"id": self.entries[key].id, "config_entry_id": config_entry_id, **kwargs})
         return self.entries[key]
 
+    def async_update_device(self, device_id, *, name=..., **kwargs):
+        entry = next(e for e in self.entries.values() if e.id == device_id)
+        if name is not ...:
+            entry.fields["name"] = name
+            entry.name = name
+        return entry
+
 
 REGISTRY = FakeDeviceRegistry()
 dr.DeviceInfo = DeviceInfo
@@ -573,13 +580,16 @@ async def main() -> None:
     print("\n== Zone device grouping ==")
     # The platform registers a device per zone type before it links an entity to
     # it - do the same here so the fixture below can reference those devices.
+    # The doors device is registered with the *other* type's name: a device keeps
+    # the name it was created with and Home Assistant never renames it, which is
+    # how a door zone ends up with a ``..._windows_...`` entity id.
     for zone_type in ("door", "motion", "window", "smoke"):
-        REGISTRY.async_get_or_create(
-            config_entry_id=entry.entry_id,
-            **binary_sensor.zone_device_info(
-                entry.runtime_data, "192.168.1.50", zone_type
-            ),
+        info = binary_sensor.zone_device_info(
+            entry.runtime_data, "192.168.1.50", zone_type
         )
+        if zone_type == "door":
+            info["name"] = "Crow Alarm Windows"
+        REGISTRY.async_get_or_create(config_entry_id=entry.entry_id, **info)
 
     # Registry state as it looks for a user who changed zone types after the
     # entities were created: the door zone 1 is still registered on the windows
@@ -669,6 +679,12 @@ async def main() -> None:
     print("\n== Zone registry alignment ==")
     doors_id = device_id_for_identifier("crow_doors")
     motion_id = device_id_for_identifier("crow_motion")
+    doors_device = REGISTRY.entries[(crow_const_domain, "crow_doors")]
+    check(
+        "a group device that carries another type's name gets the right name",
+        doors_device.name == "Crow Alarm Doors",
+        str(doors_device.name),
+    )
     stale = ENTITY_REGISTRY.async_get("binary_sensor.crow_alarm_windows_front_door")
     check("the stale entity id is gone", stale is None)
     repaired = ENTITY_REGISTRY.async_get("binary_sensor.crow_alarm_doors_front_door")

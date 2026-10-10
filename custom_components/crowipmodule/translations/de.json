@@ -5,6 +5,18 @@
         "command_only": "Nur Befehl (Anlage schaltet sofort scharf)",
         "command_then_keypad": "Befehl, dann Code + Enter (Anlage wartet auf den Code)"
       }
+    },
+    "zone_type": {
+      "options": {
+        "window": "Fenster",
+        "motion": "Bewegung",
+        "door": "Tür",
+        "smoke": "Rauch",
+        "gas": "Gas",
+        "co": "Kohlenmonoxid",
+        "tamper": "Sabotage",
+        "safety": "Sicherheit"
+      }
     }
   },
   "config": {
