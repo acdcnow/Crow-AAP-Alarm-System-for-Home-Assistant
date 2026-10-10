@@ -2,8 +2,8 @@
 
 **Project:** Crow/AAP Alarm IP Module for Home Assistant
 **Integration domain:** `crowipmodule`
-**Branch:** `HA2026_09_dev` · **Version:** `2.1.0-beta.1` · **Status:** pre-release
-**Last updated:** 2026-09-21
+**Branch:** `master` · **Version:** `2.1.2` · **Status:** released
+**Last updated:** 2026-10-10
 
 This document specifies **how** the integration is built: modules, signatures, data shapes,
 protocol tables and per-entity contracts. Read the [ADD](ADD.md) first for the architectural
@@ -72,7 +72,8 @@ Three nested maps, all keyed by **stringified ordinal** to survive JSON round-tr
 }
 ```
 
-`type` is constrained to `ZONE_TYPES = ["window","motion","door","smoke","gas","co","tamper","safety"]`.
+`type` is constrained to `ZONE_TYPES = ["window","motion","door","smoke","gas","co","tamper","safety"]`
+(defined in `const.py`). Each type also maps to its own zone device — see §6.3.
 
 > **Note.** `code_arm_required` is persisted but currently written as `True` unconditionally by
 > both flows. Effective behaviour comes from `CrowAlarmPanel.code_arm_required`, which returns
@@ -364,9 +365,19 @@ and identifier constants. **All six device-info call sites use it** — see §7.
 | Crow Alarm System | `crow_alarm_panel` | `IP Module` | — (it is the hub) |
 | Crow Alarm Windows | `crow_windows` | `IP Module Zone` | `via_device_id` |
 | Crow Alarm Doors | `crow_doors` | `IP Module Zone` | `via_device_id` |
+| Crow Alarm Motion | `crow_motion` | `IP Module Zone` | `via_device_id` |
+| Crow Alarm Smoke | `crow_smoke` | `IP Module Zone` | `via_device_id` |
+| Crow Alarm Gas | `crow_gas` | `IP Module Zone` | `via_device_id` |
+| Crow Alarm CO | `crow_co` | `IP Module Zone` | `via_device_id` |
+| Crow Alarm Tamper | `crow_tamper` | `IP Module Zone` | `via_device_id` |
+| Crow Alarm Safety | `crow_safety` | `IP Module Zone` | `via_device_id` |
 | Crow Alarm Sensors | `crow_sensors` | `IP Module Zone` | `via_device_id` |
 
-Identifier strings are **frozen** — changing one would duplicate every existing device.
+There is **one zone device per configured zone type** (`const.ZONE_DEVICES` maps the type to its
+identifier and name). `Crow Alarm Sensors` (`crow_sensors`) is the fallback device for a zone whose
+stored type is unknown. Identifier strings are **frozen** — changing one would duplicate every
+existing device; `crow_windows` and `crow_doors` therefore keep the strings the earlier
+three-device layout used.
 
 ---
 
@@ -455,7 +466,7 @@ no code available it logs an error and sends nothing, rather than emitting a dig
 | `device_class` | from `_ZONE_DEVICE_CLASSES` (below) |
 | `is_on` | `zone_state[n]["status"]["open"]` |
 | `extra_state_attributes` | the zone `status` dict (`open`, `bypass`, `alarm`, `tamper`) |
-| `device_info` | grouped device (Windows / Doors / Sensors) with `via_device_id` |
+| `device_info` | the device of the zone's **configured type** (`ZONE_DEVICES`), with `via_device_id` |
 
 | Zone type | `BinarySensorDeviceClass` |
 |---|---|
@@ -469,8 +480,14 @@ no code available it logs an error and sends nothing, rather than emitting a dig
 | `safety` | `SAFETY` |
 | anything else | ✱ no device class, warning logged |
 
-✱ Grouping means an unrecognised type lands on the *Sensors* device. Comparing against the enum
-(not a bare string) is deliberate: `BinarySensorDeviceClass` is a `StrEnum`, so the comparison holds
+Two independent lookup tables are derived from the same zone type: the **device class** above
+(what the entity *is*) and `ZONE_DEVICES` in `const.py` (which device it is grouped into). Grouping
+reads the type directly, so a `door` zone can only ever be registered on `Crow Alarm Doors` and a
+`window` zone only on `Crow Alarm Windows`; the type also becomes part of the entity's own name and
+entity id through `has_entity_name`. ✱ An unrecognised type gets no device class and lands on the
+`Crow Alarm Sensors` fallback device. (Earlier releases grouped every non-window/non-door zone onto
+that one device, so a smoke zone and a motion zone shared it.) Comparing against the enum (not a
+bare string) is deliberate: `BinarySensorDeviceClass` is a `StrEnum`, so the comparison holds
 either way, but the enum form survives refactors.
 
 **`CrowSystemStatusSensor`** — six diagnostic sensors.

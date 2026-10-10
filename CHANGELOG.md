@@ -1,5 +1,41 @@
 # Changelog
 
+## [2.1.2] - 2026-10-10
+
+### 🔧 Fixed
+
+* **Zone sub-devices are grouped per zone type again.** A zone is now registered on
+  the device that matches its **configured type**: `window` -> *Crow Alarm Windows*,
+  `door` -> *Crow Alarm Doors*, `motion` -> *Crow Alarm Motion*, `smoke` ->
+  *Crow Alarm Smoke*, and likewise for `gas`, `co`, `tamper` and `safety`. Because the
+  device name carries the type, `has_entity_name` puts the type into the entity's own
+  name and entity id - a window zone can no longer be listed under the doors device,
+  and a door zone not under the windows device.
+* Grouping now reads the zone type directly (`const.ZONE_DEVICES`) instead of deriving
+  it from the binary-sensor device class, so the two can no longer drift apart.
+
+### 🛠 Changed
+
+* Previously every zone that was not a window or a door (motion, smoke, gas, CO,
+  tamper, safety) was lumped onto a single *Crow Alarm Sensors* device, which made it
+  impossible to tell the types apart in the device list. Each type now has its own
+  device. *Crow Alarm Sensors* remains as the fallback for an unknown type, and the
+  `crow_windows` / `crow_doors` identifiers are unchanged, so the doors and windows
+  devices are picked up as-is on update.
+* Zone types are now declared once, in `const.py` (`ZONE_TYPES`, `ZONE_DEVICES`), and
+  consumed by the config flow and the binary-sensor platform.
+* **New brand images.** `icon.png` / `icon@2x.png` (256x256 / 512x512) and
+  `logo(.dark)?(_@2x)?.png` (342x160 / 684x320) were rebuilt from the current
+  project banner. The whole artwork is shown: it is scaled into the canvas and the
+  strips the different aspect ratio leaves over are filled with a continuation of the
+  banner's own background (the edge band is mirrored and faded towards the rim).
+
+> **Note after updating:** if a zone's type was changed in an earlier release, its
+> entity id was fixed when it was first created and is not renamed by Home Assistant.
+> Rename the entity once under **Settings > Devices & Services > Entities** (or re-add
+> the zone) if its entity id still names the old type. An empty *Crow Alarm Sensors*
+> device left over from 2.1.1 can simply be deleted.
+
 ## [2.1.1] - 2026-10-09
 
 ### 🛠 Changed

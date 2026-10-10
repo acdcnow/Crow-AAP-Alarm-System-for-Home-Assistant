@@ -486,16 +486,51 @@ async def main() -> None:
         by_name["Front Door"].device_info["name"] == "Crow Alarm Doors",
     )
     check(
+        "door zone uses the doors identifier",
+        by_name["Front Door"].device_info["identifiers"]
+        == {(crow_const.DOMAIN, "crow_doors")},
+    )
+    check(
         "window zone groups into Crow Alarm Windows",
         by_name["Window"].device_info["name"] == "Crow Alarm Windows",
     )
     check(
-        "motion zone groups into Crow Alarm Sensors",
-        by_name["Kitchen"].device_info["name"] == "Crow Alarm Sensors",
+        "window zone uses the windows identifier",
+        by_name["Window"].device_info["identifiers"]
+        == {(crow_const.DOMAIN, "crow_windows")},
     )
     check(
-        "smoke zone groups into Crow Alarm Sensors",
-        by_name["Smoke"].device_info["name"] == "Crow Alarm Sensors",
+        "motion zone groups into its own Crow Alarm Motion device",
+        by_name["Kitchen"].device_info["name"] == "Crow Alarm Motion",
+    )
+    check(
+        "motion zone uses the motion identifier",
+        by_name["Kitchen"].device_info["identifiers"]
+        == {(crow_const.DOMAIN, "crow_motion")},
+    )
+    check(
+        "smoke zone groups into its own Crow Alarm Smoke device",
+        by_name["Smoke"].device_info["name"] == "Crow Alarm Smoke",
+    )
+    check(
+        "motion and smoke no longer share a device",
+        by_name["Kitchen"].device_info["identifiers"]
+        != by_name["Smoke"].device_info["identifiers"],
+    )
+    check(
+        "every zone type owns a device name, identifier and device class",
+        set(crow_const.ZONE_TYPES) == set(crow_const.ZONE_DEVICES)
+        and set(crow_const.ZONE_TYPES) == set(binary_sensor._ZONE_DEVICE_CLASSES)
+        and len({ident for ident, _ in crow_const.ZONE_DEVICES.values()})
+        == len(crow_const.ZONE_DEVICES),
+    )
+    odd = binary_sensor.CrowZoneSensor(
+        entry.runtime_data, "192.168.1.50", 9, "Odd", "banana"
+    )
+    check(
+        "unknown zone type falls back to the shared sensors device",
+        odd.device_info["identifiers"]
+        == {(crow_const.DOMAIN, crow_const.IDENTIFIER_ZONE_OTHER)},
     )
     check(
         "zone devices carry via_device_id",

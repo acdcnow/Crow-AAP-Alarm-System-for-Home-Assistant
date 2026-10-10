@@ -86,9 +86,11 @@ The dashboard addresses the entities of the integration. Renaming an entity in
 the UI does not change its entity id, but if you renamed it in the entity
 settings, adjust the ids in `alarm-dashboard.yaml`.
 
-The layout assumes the **upgraded** naming where the device is
-`Crow Alarm System`, i.e. `binary_sensor.crow_alarm_doors_*`,
-`binary_sensor.crow_alarm_windows_*` and `binary_sensor.crow_alarm_system_*`.
+The layout assumes the **upgraded** naming, where every zone type has its own
+sub-device: `binary_sensor.crow_alarm_doors_*` (doors),
+`binary_sensor.crow_alarm_windows_*` (windows), `binary_sensor.crow_alarm_motion_*`
+(motion) and so on, while the panel diagnostics stay on the `Crow Alarm System`
+device (`binary_sensor.crow_alarm_system_*`).
 The alarm panel itself is `alarm_control_panel.security_crow_alarm_system_a`.
 
 The motion detectors (`binary_sensor.bewegungsmelder_*`) are treated as

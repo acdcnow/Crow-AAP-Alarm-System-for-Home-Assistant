@@ -8,9 +8,9 @@ This is a custom integration for **Home Assistant** to control **Crow Runner**, 
 
 Unlike previous solutions, this integration uses a **direct local TCP implementation** (the driver is vendored inside the integration, so no external Python dependency is installed) to ensure robust connection handling, specific command sequences (`Code` -> `Command` -> `Enter`), and accurate status parsing.
 
-> **Current release: `2.1.1`.** Targets Home Assistant 2026.9.3.
+> **Current release: `2.1.2`.** Targets Home Assistant 2026.9.3.
 > Users on Home Assistant 2026.8 or older should stay on `2.0.0`.
-> The `2.1.0-beta.1` / `2.1.0-beta.2` pre-releases are superseded - update to `2.1.1`
+> The `2.1.0-beta.1` / `2.1.0-beta.2` pre-releases are superseded - update to `2.1.2`
 > (HACS shows it without enabling *Show beta versions*).
 
 ## ✅ Requirements
@@ -54,7 +54,9 @@ Unlike previous solutions, this integration uses a **direct local TCP implementa
 * Supports up to 16 zones.
 * Configurable device class (Motion, Door, Window, Smoke, etc.) via the UI.
 * Real-time status updates (Open/Closed/Alarm/Tamper).
-* Zones are grouped into sub-devices (Windows / Doors / Sensors) linked to the main panel.
+* Zones are grouped into one sub-device **per zone type** (`Crow Alarm Windows`,
+  `Crow Alarm Doors`, `Crow Alarm Motion`, `Crow Alarm Smoke`, ...) linked to the main panel,
+  so the type is part of the entity name and entity id.
 
 
 * **Switches (Outputs):**
@@ -160,7 +162,8 @@ This integration uses the Home Assistant **Config Flow** (UI). No YAML configura
 
 * The wizard will generate fields based on the count you entered.
 * **Name:** e.g., "Kitchen Window".
-* **Type:** Select the device class (Motion, Door, Window, Smoke, etc.).
+* **Type:** Select the device class (Motion, Door, Window, Smoke, etc.). It also decides the
+  sub-device the zone is grouped into.
 
 ### Step 5: Connection
 

@@ -60,13 +60,32 @@ MANUFACTURER = "Crow/AAP"
 MODEL_IP_MODULE = "IP Module"
 MODEL_IP_MODULE_ZONE = "IP Module Zone"
 IDENTIFIER_HUB = "crow_alarm_panel"
-IDENTIFIER_WINDOWS = "crow_windows"
-IDENTIFIER_DOORS = "crow_doors"
-IDENTIFIER_SENSORS = "crow_sensors"
 DEVICE_NAME = "Crow Alarm System"
-DEVICE_NAME_WINDOWS = "Crow Alarm Windows"
-DEVICE_NAME_DOORS = "Crow Alarm Doors"
-DEVICE_NAME_SENSORS = "Crow Alarm Sensors"
+
+# The types a zone can be configured as (`options["zones"][n]["type"]`). The
+# order is the order of the dropdown in the config and options flow.
+ZONE_TYPES = [
+    "window", "motion", "door", "smoke", "gas", "co", "tamper", "safety"
+]
+
+# Every zone type owns its own device, so the type is part of the device name and
+# - through `has_entity_name` - of the entity's own name and entity id. A zone
+# is grouped by its *configured type*, never by a derived device class, so a
+# door zone cannot end up on the windows device.
+#   zone type -> (device registry identifier, device name)
+ZONE_DEVICES = {
+    "window": ("crow_windows", "Crow Alarm Windows"),
+    "door": ("crow_doors", "Crow Alarm Doors"),
+    "motion": ("crow_motion", "Crow Alarm Motion"),
+    "smoke": ("crow_smoke", "Crow Alarm Smoke"),
+    "gas": ("crow_gas", "Crow Alarm Gas"),
+    "co": ("crow_co", "Crow Alarm CO"),
+    "tamper": ("crow_tamper", "Crow Alarm Tamper"),
+    "safety": ("crow_safety", "Crow Alarm Safety"),
+}
+# Zones whose configured type is unknown (or not a string) share this device.
+IDENTIFIER_ZONE_OTHER = "crow_sensors"
+DEVICE_NAME_ZONE_OTHER = "Crow Alarm Sensors"
 
 # Signals
 SIGNAL_ZONE_UPDATE = "crowipmodule.zones_updated"

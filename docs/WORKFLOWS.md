@@ -327,7 +327,7 @@ flowchart LR
     RD --> D1["Hub device<br/>crow_alarm_panel"]
     RD --> C["Vendored driver<br/>pycrowipmodule"]
     C <-->|TCP 5002| IPM["Crow IP Module"]
-    D1 -.->|via_device_id| D2["Windows / Doors / Sensors<br/>zone sub-devices"]
+    D1 -.->|via_device_id| D2["one zone sub-device per type<br/>(Windows, Doors, Motion, Smoke, …)"]
 
     RD --> P1["alarm_control_panel"]
     RD --> P2["binary_sensor<br/>zones + 6 statuses"]

@@ -24,16 +24,13 @@ from .const import (
     CONF_OBJ_ZONE_BATTERY,
     CONF_ZONES,
     DEVICE_NAME,
-    DEVICE_NAME_DOORS,
-    DEVICE_NAME_SENSORS,
-    DEVICE_NAME_WINDOWS,
-    IDENTIFIER_DOORS,
-    IDENTIFIER_SENSORS,
-    IDENTIFIER_WINDOWS,
+    DEVICE_NAME_ZONE_OTHER,
+    IDENTIFIER_ZONE_OTHER,
     MODEL_IP_MODULE_ZONE,
     SIGNAL_CONNECTION_UPDATE,
     SIGNAL_SYSTEM_UPDATE,
     SIGNAL_ZONE_UPDATE,
+    ZONE_DEVICES,
 )
 from .device import CrowRuntimeData, build_device_info
 
@@ -126,6 +123,7 @@ class CrowZoneSensor(CrowBaseEntity):
     def __init__(self, runtime_data, host, zone_number, zone_name, zone_type):
         super().__init__(runtime_data, host)
         self._zone_number = zone_number
+        self._zone_type = zone_type
         self._attr_name = zone_name
         self._attr_device_class = _ZONE_DEVICE_CLASSES.get(zone_type)
         if self._attr_device_class is None and zone_type:
@@ -162,23 +160,21 @@ class CrowZoneSensor(CrowBaseEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Return device info to group entities by zone type.
+        """Return the device that matches this zone's configured type.
+
+        The type is looked up in ``ZONE_DEVICES`` directly - not via the derived
+        device class - so a door zone can only ever be registered on the doors
+        device and a window zone only on the windows device. Because the device
+        name carries the type and ``has_entity_name`` is ``True``, the type also
+        becomes part of the entity's own name and entity id.
 
         The group devices are linked to the main panel with ``via_device_id``.
         The identifier tuple based ``via_device`` used before is deprecated in
         Home Assistant and is removed in 2027.8.
         """
-        # Determine the group based on the zone type (device class).
-        if self._attr_device_class == BinarySensorDeviceClass.WINDOW:
-            device_name = DEVICE_NAME_WINDOWS
-            device_identifier = IDENTIFIER_WINDOWS
-        elif self._attr_device_class == BinarySensorDeviceClass.DOOR:
-            device_name = DEVICE_NAME_DOORS
-            device_identifier = IDENTIFIER_DOORS
-        else:
-            # Group motion, smoke, and other sensors together.
-            device_name = DEVICE_NAME_SENSORS
-            device_identifier = IDENTIFIER_SENSORS
+        device_identifier, device_name = ZONE_DEVICES.get(
+            self._zone_type, (IDENTIFIER_ZONE_OTHER, DEVICE_NAME_ZONE_OTHER)
+        )
 
         return build_device_info(
             name=device_name,

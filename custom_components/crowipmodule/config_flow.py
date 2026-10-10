@@ -35,13 +35,10 @@ from .const import (
     DEFAULT_NUM_ZONES,
     DEFAULT_NUM_OUTPUTS,
     DEFAULT_FW_DATE,
+    ZONE_TYPES,
 )
 
 _LOGGER = logging.getLogger(__name__)
-
-ZONE_TYPES = [
-    "window", "motion", "door", "smoke", "gas", "co", "tamper", "safety"
-]
 
 PAGE_SIZE = 4
 
