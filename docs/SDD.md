@@ -2,7 +2,7 @@
 
 **Project:** Crow/AAP Alarm IP Module for Home Assistant
 **Integration domain:** `crowipmodule`
-**Branch:** `master` · **Version:** `2.1.4` · **Status:** released
+**Branch:** `master` · **Version:** `2.2.0-beta.1` · **Status:** pre-release
 **Last updated:** 2026-10-10
 
 This document specifies **how** the integration is built: modules, signatures, data shapes,
@@ -363,21 +363,18 @@ and identifier constants. **All six device-info call sites use it** — see §7.
 | Device | Identifier | Model | Linked to hub |
 |---|---|---|---|
 | Crow Alarm System | `crow_alarm_panel` | `IP Module` | — (it is the hub) |
-| Crow Alarm Windows | `crow_windows` | `IP Module Zone` | `via_device_id` |
-| Crow Alarm Doors | `crow_doors` | `IP Module Zone` | `via_device_id` |
-| Crow Alarm Motion | `crow_motion` | `IP Module Zone` | `via_device_id` |
-| Crow Alarm Smoke | `crow_smoke` | `IP Module Zone` | `via_device_id` |
-| Crow Alarm Gas | `crow_gas` | `IP Module Zone` | `via_device_id` |
-| Crow Alarm CO | `crow_co` | `IP Module Zone` | `via_device_id` |
-| Crow Alarm Tamper | `crow_tamper` | `IP Module Zone` | `via_device_id` |
-| Crow Alarm Safety | `crow_safety` | `IP Module Zone` | `via_device_id` |
 | Crow Alarm Sensors | `crow_sensors` | `IP Module Zone` | `via_device_id` |
 
-There is **one zone device per configured zone type** (`const.ZONE_DEVICES` maps the type to its
-identifier and name). `Crow Alarm Sensors` (`crow_sensors`) is the fallback device for a zone whose
-stored type is unknown. Identifier strings are **frozen** — changing one would duplicate every
-existing device; `crow_windows` and `crow_doors` therefore keep the strings the earlier
-three-device layout used.
+**All zone entities live on `Crow Alarm Sensors`.** The zone *type* selects the binary-sensor device
+class (the icon), never the device: Home Assistant links an entity to a device only at first
+registration, so a per-type device layout would leave an entity behind on the device of a type the
+zone no longer has, with no way to move it from the UI.
+
+The identifiers `crow_windows` / `crow_doors` / `crow_motion` / `crow_smoke` / `crow_gas` / `crow_co` /
+`crow_tamper` / `crow_safety` (listed in `const.LEGACY_ZONE_IDENTIFIERS`) are **retired**: releases
+up to 2.1.4 created a device for each of them, and `binary_sensor._remove_retired_zone_devices()`
+deletes such a device as soon as nothing is registered on it any more. `crow_alarm_panel` and
+`crow_sensors` are **frozen** — changing one would duplicate an existing device.
 
 ---
 
@@ -466,7 +463,7 @@ no code available it logs an error and sends nothing, rather than emitting a dig
 | `device_class` | from `_ZONE_DEVICE_CLASSES` (below) |
 | `is_on` | `zone_state[n]["status"]["open"]` |
 | `extra_state_attributes` | the zone `status` dict (`open`, `bypass`, `alarm`, `tamper`) |
-| `device_info` | `zone_device_info()`: the device of the zone's **configured type** (`ZONE_DEVICES`), with `via_device_id` |
+| `device_info` | `zone_device_info()`: the single zone device, with `via_device_id` |
 
 | Zone type | `BinarySensorDeviceClass` |
 |---|---|
@@ -480,47 +477,34 @@ no code available it logs an error and sends nothing, rather than emitting a dig
 | `safety` | `SAFETY` |
 | anything else | ✱ no device class, warning logged |
 
-Two independent lookup tables are derived from the same zone type: the **device class** above
-(what the entity *is*) and `ZONE_DEVICES` in `const.py` (which device it is grouped into). Grouping
-reads the type directly, so a `door` zone can only ever be registered on `Crow Alarm Doors` and a
-`window` zone only on `Crow Alarm Windows`; the type also becomes part of the entity's own name and
-entity id through `has_entity_name`. ✱ An unrecognised type gets no device class and lands on the
-`Crow Alarm Sensors` fallback device. (Earlier releases grouped every non-window/non-door zone onto
-that one device, so a smoke zone and a motion zone shared it.) Comparing against the enum (not a
-bare string) is deliberate: `BinarySensorDeviceClass` is a `StrEnum`, so the comparison holds
-either way, but the enum form survives refactors.
+The **device class** above comes from the zone type (what the entity *is*); the **device** every zone
+entity is registered on is the one `const.zone_device()` returns - a single *Crow Alarm Sensors* device
+for all of them. ✱ An unrecognised type gets no device class. Comparing against the enum (not a bare
+string) is deliberate: `BinarySensorDeviceClass` is a `StrEnum`, so the comparison holds either way,
+but the enum form survives refactors.
 
 #### 7.2.1 Zone registry alignment (`_async_align_zone_entities`)
 
-Home Assistant links an entity to a device — and derives the entity id from that device's name —
-**only when the entity is registered for the first time**. A later `device_info` change updates
-`device_id`, but the entity id keeps naming the device the entity was born on. A zone whose type
-was changed after its entity was created therefore ended up on the right device with an id naming
-the old one (`binary_sensor.crow_alarm_windows_terrassentur` for a door zone).
+Home Assistant links an entity to a device **only when the entity is registered for the first time**;
+a later `device_info` change moves it, but an entity that was created while the zones still had their
+own devices would keep that device for good, and re-configuring the zone does not move it.
 
-Before the zone entities are created, `async_setup_entry` therefore walks `options["zones"]` and,
-for every existing registry entry (`unique_id` = `zone_unique_id(n)`, scoped to the entry via
-`runtime_data.entry_id`):
+Before the zone entities are created, `async_setup_entry` therefore walks `options["zones"]` and, for
+every existing registry entry (`unique_id` = `zone_unique_id(n)`, scoped to the entry via
+`runtime_data.entry_id`), writes the single zone device (`zone_device_info()`), corrected name
+included, as the entry's `device_id`. Entity ids are **not** touched: they are the handles dashboards
+and automations use. Each move is logged at info level, everything else at debug level.
 
-1. creates/gets the device of the type the zone has **now**, corrects its `name` when it does not
-   match the type (`async_update_device` - a device keeps the name it was created with, and that
-   name is what every entity id generated from it is built from) and writes the device as the
-   entry's `device_id`;
-2. if the entity id still starts with another zone type's device name
-   (`_entity_id_was_generated_for_another_type`), rebuilds it with
-   `entity_registry.async_regenerate_entity_id()` and renames the entry.
+Directly afterwards `_remove_retired_zone_devices()` deletes every device in
+`const.LEGACY_ZONE_IDENTIFIERS` that has no entity left on it, so the per-type devices of releases up
+to 2.1.4 disappear from the device list without any manual cleanup. A device that still has entities is
+never touched.
 
-The flow also logs the zone → type map it is working from (`Zone types: 1 'Eingangstür'=door, ...`),
-so a zone that is grouped unexpectedly can be traced back to the type actually stored for it, and the
-alignment logs the device it resolved per zone at `DEBUG`. The same facts - plus the device the entity
-is *actually* linked to, which no Home Assistant view shows - are part of the diagnostics download
-(`zone_registry`: `name`, `type`, `expected_device`, `entity_id`, `device_name`, `device_identifiers`;
-see `diagnostics._zone_registry_report`).
-
-An id the user chose themselves never matches another zone device's prefix, so it is moved but
-never renamed. Every correction is logged at info level. `zone_device_info()` is the single
-constructor for a zone device's `DeviceInfo`, shared by the entity and the alignment, so the two
-cannot disagree.
+The flow logs the zone → type map it is working from (`Zone types: 1 'Eingangstür'=door, ...`), so a
+zone that is grouped unexpectedly can be traced back to the type actually stored for it. The same facts
+- plus the device the entity is *actually* linked to, which no Home Assistant view shows - are part of
+the diagnostics download (`zone_registry`: `name`, `type`, `expected_device`, `entity_id`,
+`device_name`, `device_identifiers`; see `diagnostics._zone_registry_report`).
 
 **`CrowSystemStatusSensor`** — six diagnostic sensors.
 
@@ -610,7 +594,7 @@ stateDiagram-v2
 `_ZONE_FIELD` (`^zone_(\d+)_(name|type)$`) - never through the position of the field on the form.
 `zone_{i}_type` is a `SelectSelector` (`translation_key="zone_type"`), so the dropdown shows
 *Fenster* / *Tür* / *Bewegung* while the **stored** value stays the plain type string from
-`ZONE_TYPES` that `ZONE_DEVICES` and the device classes are keyed by. Earlier releases split the
+`ZONE_TYPES` that the device classes are keyed by. Earlier releases split the
 zones over pages of four and tracked the current page in the flow handler; the page then depended on
 hidden state instead of on the form the user had in front of them, so a step back could skip a page
 or mis-assign a type. There is no page state any more.

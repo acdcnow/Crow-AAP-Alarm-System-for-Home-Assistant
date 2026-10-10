@@ -141,6 +141,7 @@ class FakeDeviceRegistry:
     def __init__(self) -> None:
         self.entries: dict[tuple[str, str], FakeDeviceEntry] = {}
         self.created: list[dict] = []
+        self.removed: list[str] = []
         self._counter = 0
 
     def async_get_or_create(self, *, config_entry_id: str, **kwargs):
@@ -171,6 +172,18 @@ class FakeDeviceRegistry:
 
     def async_get(self, device_id, **kwargs):
         return next((e for e in self.entries.values() if e.id == device_id), None)
+
+    def async_get_device(self, identifiers=None, connections=None):
+        if identifiers:
+            key = next(iter(identifiers))
+            return self.entries.get(key)
+        return None
+
+    def async_remove_device(self, device_id):
+        for key, entry in list(self.entries.items()):
+            if entry.id == device_id:
+                del self.entries[key]
+                self.removed.append(device_id)
 
 
 REGISTRY = FakeDeviceRegistry()
@@ -272,6 +285,9 @@ er.async_entries_for_config_entry = lambda registry, config_entry_id: [
     entry
     for entry in registry.entries.values()
     if entry.config_entry_id == config_entry_id
+]
+er.async_entries_for_device = lambda registry, device_id, include_disabled_entities=False: [
+    entry for entry in registry.entries.values() if entry.device_id == device_id
 ]
 
 # --- homeassistant.helpers.dispatcher --------------------------------------- #
@@ -593,27 +609,30 @@ async def main() -> None:
     # The doors device is registered with the *other* type's name: a device keeps
     # the name it was created with and Home Assistant never renames it, which is
     # how a door zone ends up with a ``..._windows_...`` entity id.
-    for zone_type in ("door", "motion", "window", "smoke"):
+    # The per-type devices that releases up to 2.1.4 created, as they still exist
+    # in the device registry of an installation that has been through them.
+    for legacy_identifier, legacy_name, zone_type in (
+        ("crow_windows", "Crow Alarm Windows", "window"),
+        ("crow_doors", "Crow Alarm Doors", "door"),
+        ("crow_motion", "Crow Alarm Motion", "motion"),
+    ):
         info = binary_sensor.zone_device_info(
             entry.runtime_data, "192.168.1.50", zone_type
         )
-        if zone_type == "door":
-            info["name"] = "Crow Alarm Windows"
+        info["name"] = legacy_name
+        info["identifiers"] = {(crow_const.DOMAIN, legacy_identifier)}
         REGISTRY.async_get_or_create(config_entry_id=entry.entry_id, **info)
 
-    # Registry state as it looks for a user who changed zone types after the
-    # entities were created: the door zone 1 is still registered on the windows
-    # device and its entity id still names it.
+    # Registry state as it looks for such a user: the door zone 1 is still
+    # registered on the windows device, the motion zone on the windows device too.
     ENTITY_REGISTRY.add(FakeRegistryEntry(
         "binary_sensor.crow_alarm_windows_front_door", "crow_zone_1",
         device_id=device_id_for_identifier("crow_windows"), object_id_base="Front Door",
     ))
-    # A window zone that is already where it belongs - must be left alone.
     ENTITY_REGISTRY.add(FakeRegistryEntry(
         "binary_sensor.crow_alarm_windows_window", "crow_zone_3",
         device_id=device_id_for_identifier("crow_windows"), object_id_base="Window",
     ))
-    # A user-chosen entity id: the move is applied, the id is never renamed.
     ENTITY_REGISTRY.add(FakeRegistryEntry(
         "binary_sensor.meine_bewegung", "crow_zone_2",
         device_id=device_id_for_identifier("crow_windows"), object_id_base="Kitchen",
@@ -625,55 +644,31 @@ async def main() -> None:
     check("4 zone sensors created", len(zones) == 4)
     by_name = {e._attr_name: e for e in zones}
     check(
-        "door zone groups into Crow Alarm Doors",
-        by_name["Front Door"].device_info["name"] == "Crow Alarm Doors",
+        "every zone is registered on the one Crow Alarm Sensors device",
+        all(
+            e.device_info["name"] == "Crow Alarm Sensors"
+            and e.device_info["identifiers"] == {(crow_const.DOMAIN, "crow_sensors")}
+            for e in zones
+        ),
+        str({e._attr_name: e.device_info["name"] for e in zones}),
     )
     check(
-        "door zone uses the doors identifier",
-        by_name["Front Door"].device_info["identifiers"]
-        == {(crow_const.DOMAIN, "crow_doors")},
+        "the zone type still decides the device class",
+        by_name["Front Door"]._attr_device_class is BinarySensorDeviceClass.DOOR
+        and by_name["Window"]._attr_device_class is BinarySensorDeviceClass.WINDOW
+        and by_name["Kitchen"]._attr_device_class is BinarySensorDeviceClass.MOTION
+        and by_name["Smoke"]._attr_device_class is BinarySensorDeviceClass.SMOKE,
     )
     check(
-        "window zone groups into Crow Alarm Windows",
-        by_name["Window"].device_info["name"] == "Crow Alarm Windows",
+        "every zone type has a device class",
+        set(crow_const.ZONE_TYPES) == set(binary_sensor._ZONE_DEVICE_CLASSES),
     )
     check(
-        "window zone uses the windows identifier",
-        by_name["Window"].device_info["identifiers"]
-        == {(crow_const.DOMAIN, "crow_windows")},
-    )
-    check(
-        "motion zone groups into its own Crow Alarm Motion device",
-        by_name["Kitchen"].device_info["name"] == "Crow Alarm Motion",
-    )
-    check(
-        "motion zone uses the motion identifier",
-        by_name["Kitchen"].device_info["identifiers"]
-        == {(crow_const.DOMAIN, "crow_motion")},
-    )
-    check(
-        "smoke zone groups into its own Crow Alarm Smoke device",
-        by_name["Smoke"].device_info["name"] == "Crow Alarm Smoke",
-    )
-    check(
-        "motion and smoke no longer share a device",
-        by_name["Kitchen"].device_info["identifiers"]
-        != by_name["Smoke"].device_info["identifiers"],
-    )
-    check(
-        "every zone type owns a device name, identifier and device class",
-        set(crow_const.ZONE_TYPES) == set(crow_const.ZONE_DEVICES)
-        and set(crow_const.ZONE_TYPES) == set(binary_sensor._ZONE_DEVICE_CLASSES)
-        and len({ident for ident, _ in crow_const.ZONE_DEVICES.values()})
-        == len(crow_const.ZONE_DEVICES),
-    )
-    odd = binary_sensor.CrowZoneSensor(
-        entry.runtime_data, "192.168.1.50", 9, "Odd", "banana"
-    )
-    check(
-        "unknown zone type falls back to the shared sensors device",
-        odd.device_info["identifiers"]
-        == {(crow_const.DOMAIN, crow_const.IDENTIFIER_ZONE_OTHER)},
+        "an unknown zone type lands on the same device",
+        binary_sensor.CrowZoneSensor(
+            entry.runtime_data, "192.168.1.50", 9, "Odd", "banana"
+        ).device_info["identifiers"]
+        == {(crow_const.DOMAIN, crow_const.IDENTIFIER_ZONE)},
     )
     check(
         "zone devices carry via_device_id",
@@ -687,32 +682,30 @@ async def main() -> None:
     check("zone entities do not poll", zones[0].should_poll is False)
 
     print("\n== Zone registry alignment ==")
-    doors_id = device_id_for_identifier("crow_doors")
-    motion_id = device_id_for_identifier("crow_motion")
-    doors_device = REGISTRY.entries[(crow_const_domain, "crow_doors")]
+    sensors_id = device_id_for_identifier("crow_sensors")
+    for entity_id in (
+        "binary_sensor.crow_alarm_windows_front_door",
+        "binary_sensor.crow_alarm_windows_window",
+        "binary_sensor.meine_bewegung",
+    ):
+        registry_entry = ENTITY_REGISTRY.async_get(entity_id)
+        check(
+            f"{entity_id} is moved onto the zone device",
+            registry_entry is not None and registry_entry.device_id == sensors_id,
+            str(registry_entry and registry_entry.device_id),
+        )
     check(
-        "a group device that carries another type's name gets the right name",
-        doors_device.name == "Crow Alarm Doors",
-        str(doors_device.name),
+        "entity ids are left untouched",
+        ENTITY_REGISTRY.async_get("binary_sensor.crow_alarm_windows_front_door") is not None
+        and ENTITY_REGISTRY.async_get("binary_sensor.meine_bewegung") is not None,
     )
-    stale = ENTITY_REGISTRY.async_get("binary_sensor.crow_alarm_windows_front_door")
-    check("the stale entity id is gone", stale is None)
-    repaired = ENTITY_REGISTRY.async_get("binary_sensor.crow_alarm_doors_front_door")
     check(
-        "a door zone registered on the windows device is moved to the doors device",
-        repaired is not None and repaired.device_id == doors_id,
-    )
-    untouched = ENTITY_REGISTRY.async_get("binary_sensor.crow_alarm_windows_window")
-    check(
-        "a window zone already on the windows device keeps its entity id",
-        untouched is not None and untouched.entity_id == "binary_sensor.crow_alarm_windows_window",
-    )
-    renamed = ENTITY_REGISTRY.async_get("binary_sensor.meine_bewegung")
-    check(
-        "a user-chosen entity id is moved but never renamed",
-        renamed is not None
-        and renamed.device_id == motion_id
-        and renamed.entity_id == "binary_sensor.meine_bewegung",
+        "the retired per-type devices are removed once empty",
+        all(
+            (crow_const.DOMAIN, identifier) not in REGISTRY.entries
+            for identifier in crow_const.LEGACY_ZONE_IDENTIFIERS
+        ),
+        str([key for key in REGISTRY.entries if key[1].startswith("crow_")]),
     )
 
     print("\n== System status sensors ==")
@@ -914,15 +907,15 @@ async def main() -> None:
     report = result["zone_registry"]
     check("diagnostics includes the zone registry report", isinstance(report, dict), str(report))
     check(
-        "diagnostics reports the expected device of a zone",
-        report["1"]["expected_device"] == "Crow Alarm Doors"
-        and report["1"]["expected_device_identifier"] == "crow_doors",
+        "diagnostics reports the device the zones live on",
+        report["1"]["expected_device"] == "Crow Alarm Sensors"
+        and report["1"]["expected_device_identifier"] == "crow_sensors",
         str(report["1"]),
     )
     check(
-        "diagnostics reports the repaired entity and its real device",
-        report["1"]["entity_id"] == "binary_sensor.crow_alarm_doors_front_door"
-        and report["1"]["device_identifiers"] == ["crow_doors"],
+        "diagnostics reports the entity and the device it really sits on",
+        report["1"]["entity_id"] == "binary_sensor.crow_alarm_windows_front_door"
+        and report["1"]["device_identifiers"] == ["crow_sensors"],
         str(report["1"]),
     )
     check(

@@ -41,8 +41,8 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-# Zone type strings and the device they group into are declared in const.py
-# (ZONE_TYPES / ZONE_DEVICES); the flow only picks the type.
+# Zone type strings are declared in const.py (ZONE_TYPES); the flow only picks the
+# type, which decides the icon of the sensor - not which device it lives on.
 DEFAULT_ZONE_TYPE = "window"
 
 # Translation key of the zone type dropdown: the option labels live in

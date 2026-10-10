@@ -15,7 +15,6 @@ from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
-from homeassistant.util import slugify
 
 from .const import (
     CONF_OBJ_BATTERY,
@@ -26,14 +25,12 @@ from .const import (
     CONF_OBJ_ZONE_BATTERY,
     CONF_ZONES,
     DEVICE_NAME,
-    DEVICE_NAME_ZONE_OTHER,
     DOMAIN,
-    IDENTIFIER_ZONE_OTHER,
+    LEGACY_ZONE_IDENTIFIERS,
     MODEL_IP_MODULE_ZONE,
     SIGNAL_CONNECTION_UPDATE,
     SIGNAL_SYSTEM_UPDATE,
     SIGNAL_ZONE_UPDATE,
-    ZONE_DEVICES,
     zone_device,
 )
 from .device import CrowRuntimeData, build_device_info
@@ -69,7 +66,7 @@ def zone_device_name(zone_type: str) -> str:
 def zone_device_info(
     runtime_data: CrowRuntimeData, host: str, zone_type: str
 ) -> DeviceInfo:
-    """Return the ``DeviceInfo`` of the device a zone type is grouped into.
+    """Return the ``DeviceInfo`` of the device the zone entities live on.
 
     Both the entity and the registry alignment below build their device from
     here, so an entity and its registry entry can never disagree about it.
@@ -85,26 +82,27 @@ def zone_device_info(
     )
 
 
-def _entity_id_was_generated_for_another_type(entity_id: str, zone_type: str) -> bool:
-    """Return whether an entity id still names another zone type's device.
+def _remove_retired_zone_devices(hass: HomeAssistant) -> None:
+    """Remove the per-type zone devices of releases up to 2.1.4 once empty.
 
-    An entity id is ``<domain>.<device name> <entity name>``, so one that was
-    generated while the zone still had a different type still starts with that
-    type's device name.
+    Every zone entity lives on one device now, so the former *Windows* / *Doors* /
+    *Motion* / ... devices are dead weight in the device list. A device is only
+    removed when nothing is registered on it any more, so this can never take an
+    entity away from a user.
     """
-    object_id = entity_id.partition(".")[2]
-    current = slugify(zone_device_name(zone_type))
-    for name in (_all_zone_device_names()):
-        if name != current and object_id.startswith(f"{name}_"):
-            return True
-    return False
+    devices = dr.async_get(hass)
+    entities = er.async_get(hass)
 
-
-def _all_zone_device_names() -> set[str]:
-    """Return the slugified device names of every zone group plus the fallback."""
-    names = {slugify(name) for _, name in ZONE_DEVICES.values()}
-    names.add(slugify(DEVICE_NAME_ZONE_OTHER))
-    return names
+    for identifier in LEGACY_ZONE_IDENTIFIERS:
+        device = devices.async_get_device(identifiers={(DOMAIN, identifier)})
+        if device is None:
+            continue
+        if er.async_entries_for_device(
+            entities, device.id, include_disabled_entities=True
+        ):
+            continue
+        _LOGGER.info("Removing the retired zone device %r", device.name)
+        devices.async_remove_device(device.id)
 
 
 @callback
@@ -114,17 +112,15 @@ def _async_align_zone_entities(
     host: str,
     configured_zones: dict,
 ) -> None:
-    """Re-link existing zone entities to the device of their configured type.
+    """Move existing zone entities onto the single zone device.
 
-    Home Assistant links an entity to a device - and derives its entity id from
-    that device's name - only when the entity is registered for the very first
-    time. A later device change moves the entity but leaves the entity id
-    naming the old device, so a zone whose type was changed afterwards keeps an
-    entity id of the type it once had (a door zone called
-    ``..._windows_terrassentur``, for example).
+    Home Assistant links an entity to a device only when it is registered for the
+    very first time, so an entity that was created while the zones still had their
+    own devices would keep that device forever - unless the integration re-links
+    it, which is what happens here, before the entities are created.
 
-    Re-derive the device and the entity id from the configured type here, before
-    the entities are created, so both always match the type the zone has now.
+    Entity ids are left exactly as they are: they are stable handles for
+    dashboards and automations, and only the device they hang off changes.
     """
     registry = er.async_get(hass)
     devices = dr.async_get(hass)
@@ -158,10 +154,7 @@ def _async_align_zone_entities(
         expected_name = zone_device_name(zone_type)
         if device.name != expected_name:
             # A device keeps the name it was created with - Home Assistant does not
-            # rename it when the integration reports another one later. A group
-            # device created by an older build under a swapped name would keep
-            # handing that name to every entity id generated from it, which is
-            # exactly how a window zone ends up called ``..._doors_<name>``.
+            # rename it when the integration reports another one later.
             _LOGGER.warning(
                 "Zone device %s is named %r but should be %r - correcting the name",
                 device.id,
@@ -171,14 +164,16 @@ def _async_align_zone_entities(
             device = devices.async_update_device(device.id, name=expected_name)
 
         previous_device_id = entry.device_id
-        entry = registry.async_update_entity(entity_id, device_id=device.id)
-        if previous_device_id != entry.device_id:
+        if previous_device_id != device.id:
+            registry.async_update_entity(entity_id, device_id=device.id)
             _LOGGER.info(
-                "Zone %s %r (%s) moved to device %r",
+                "Zone %s %r (%s) moved from device %s to %r (entity id unchanged: %s)",
                 zone_number,
                 zone_info.get("name"),
                 zone_type,
+                previous_device_id,
                 device.name,
+                entity_id,
             )
 
         _LOGGER.debug(
@@ -187,35 +182,10 @@ def _async_align_zone_entities(
             zone_info.get("name"),
             zone_type,
             device.name,
-            entry.entity_id,
+            entity_id,
         )
 
-        if not _entity_id_was_generated_for_another_type(entry.entity_id, zone_type):
-            continue
-
-        expected_id = registry.async_regenerate_entity_id(entry)
-        if expected_id == entry.entity_id:
-            continue
-
-        try:
-            registry.async_update_entity(entry.entity_id, new_entity_id=expected_id)
-        except ValueError as err:  # noqa: PERF203 - one bad zone must not stop the rest
-            _LOGGER.warning(
-                "Could not rename zone entity %s to %s: %s",
-                entry.entity_id,
-                expected_id,
-                err,
-            )
-            continue
-
-        _LOGGER.info(
-            "Zone %s is a %s now: moved %s to %s and renamed it to %s",
-            zone_number,
-            zone_type,
-            entry.entity_id,
-            device.name,
-            expected_id,
-        )
+    _remove_retired_zone_devices(hass)
 
 
 async def async_setup_entry(
@@ -347,15 +317,15 @@ class CrowZoneSensor(CrowBaseEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Return the device that matches this zone's configured type.
+        """Return the device all zone entities live on.
 
-        The type is looked up in ``ZONE_DEVICES`` directly - not via the derived
-        device class - so a door zone can only ever be registered on the doors
-        device and a window zone only on the windows device. Because the device
-        name carries the type and ``has_entity_name`` is ``True``, the type also
-        becomes part of the entity's own name and entity id.
+        The zone type decides the binary-sensor device class (the icon), not the
+        device: every zone is registered on the one *Crow Alarm Sensors* device,
+        which is linked to the main panel with ``via_device_id``. With Home
+        Assistant only linking an entity to a device at first registration, a
+        single device is what makes the assignment independent of when a zone was
+        configured or re-typed.
 
-        The group devices are linked to the main panel with ``via_device_id``.
         The identifier tuple based ``via_device`` used before is deprecated in
         Home Assistant and is removed in 2027.8.
         """

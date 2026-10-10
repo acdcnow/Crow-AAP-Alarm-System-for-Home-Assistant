@@ -68,33 +68,36 @@ ZONE_TYPES = [
     "window", "motion", "door", "smoke", "gas", "co", "tamper", "safety"
 ]
 
-# Every zone type owns its own device, so the type is part of the device name and
-# - through `has_entity_name` - of the entity's own name and entity id. A zone
-# is grouped by its *configured type*, never by a derived device class, so a
-# door zone cannot end up on the windows device.
-#   zone type -> (device registry identifier, device name)
-ZONE_DEVICES = {
-    "window": ("crow_windows", "Crow Alarm Windows"),
-    "door": ("crow_doors", "Crow Alarm Doors"),
-    "motion": ("crow_motion", "Crow Alarm Motion"),
-    "smoke": ("crow_smoke", "Crow Alarm Smoke"),
-    "gas": ("crow_gas", "Crow Alarm Gas"),
-    "co": ("crow_co", "Crow Alarm CO"),
-    "tamper": ("crow_tamper", "Crow Alarm Tamper"),
-    "safety": ("crow_safety", "Crow Alarm Safety"),
-}
-# Zones whose configured type is unknown (or not a string) share this device.
-IDENTIFIER_ZONE_OTHER = "crow_sensors"
-DEVICE_NAME_ZONE_OTHER = "Crow Alarm Sensors"
+# The zone entities all live on one device. The zone *type* still decides the
+# binary-sensor device class (the icon in the UI), but it no longer decides which
+# device the entity is registered on: Home Assistant only links an entity to a
+# device when it is registered for the first time, so a zone that was re-typed
+# afterwards could otherwise stay on the device of its former type.
+IDENTIFIER_ZONE = "crow_sensors"
+DEVICE_NAME_ZONE = "Crow Alarm Sensors"
+
+# Identifiers of the per-type zone devices that releases up to 2.1.4 created.
+# They are removed again once nothing is left on them.
+LEGACY_ZONE_IDENTIFIERS = (
+    "crow_windows",
+    "crow_doors",
+    "crow_motion",
+    "crow_smoke",
+    "crow_gas",
+    "crow_co",
+    "crow_tamper",
+    "crow_safety",
+)
 
 
-def zone_device(zone_type: str) -> tuple[str, str]:
-    """Return the ``(identifier, name)`` of the device a zone type groups into.
+def zone_device(zone_type: str | None = None) -> tuple[str, str]:
+    """Return the ``(identifier, name)`` of the device the zones live on.
 
-    Single source of truth for the type -> device mapping; used by the
-    binary-sensor platform and by the diagnostics report.
+    Single source of truth for the mapping; used by the binary-sensor platform
+    and by the diagnostics report. ``zone_type`` is still accepted (and ignored)
+    so the call sites read the same as when the type chose the device.
     """
-    return ZONE_DEVICES.get(zone_type, (IDENTIFIER_ZONE_OTHER, DEVICE_NAME_ZONE_OTHER))
+    return IDENTIFIER_ZONE, DEVICE_NAME_ZONE
 
 # Signals
 SIGNAL_ZONE_UPDATE = "crowipmodule.zones_updated"

@@ -207,7 +207,7 @@ which only exists after the parent device is registered.
 **Consequences.**
 
 * ✔ No deprecation warning; nothing breaks in 2027.8.
-* ✔ Zone sub-devices (`Crow Alarm Windows` / `Doors` / `Motion` / `Smoke` / ...) hang off the hub correctly.
+* ✔ Zone sub-devices (one *Crow Alarm Sensors* device for all zones) hang off the hub correctly.
 * ✔ `sw_version` and `configuration_url` are consistent across all six device-info call sites
   (previously six hand-written copies had drifted).
 * ✘ Setup order is now significant: the hub device must exist before any platform runs.

@@ -1,5 +1,39 @@
 # Changelog
 
+## [2.2.0-beta.1] - 2026-10-10
+
+> ⚠️ **Pre-release - enable *Show beta versions* in HACS to test it.**
+
+**All zone entities now live on one device** (`Crow Alarm Sensors`) instead of one device per zone
+type. Home Assistant links an entity to a device only when it is registered for the very first time,
+so the split layout could leave an entity behind on the device of a type the zone no longer had - and
+no amount of re-configuring would move it. With a single device there is nothing left to be assigned
+to the wrong place.
+
+### 🛠 Changed
+
+* Zone entities are registered on `Crow Alarm Sensors` (`crow_sensors`). The zone **type** still
+  decides the binary-sensor device class and therefore the icon (*Fenster*, *Tür*, *Bewegung*, ...);
+  it no longer decides which device the entity hangs off.
+* On every setup the integration moves already-registered zone entities onto that device, so an
+  installation that has been through 2.0.0 - 2.1.4 is corrected on the next restart.
+* **Entity ids are no longer rewritten.** An entity id is a handle your dashboards and automations
+  point at; it stays exactly as it is (`binary_sensor.crow_alarm_windows_terrassentur` keeps working
+  even though the entity now sits on *Crow Alarm Sensors*). Newly created entities get
+  `binary_sensor.crow_alarm_sensors_<name>`.
+* The per-type devices (*Crow Alarm Windows*, *Crow Alarm Doors*, *Crow Alarm Motion*, ...) are
+  **removed from the device registry once nothing is registered on them any more**. A device that
+  still has entities is never touched.
+* The diagnostics `zone_registry` report now shows `Crow Alarm Sensors` as the expected device and
+  reports the device each entity is really registered on.
+
+### ℹ️ What to expect on update
+
+* After the restart the log lists one line per moved zone
+  (`Zone 4 'Küchenfenster' (window) moved from device ... to 'Crow Alarm Sensors' (entity id unchanged: ...)`),
+  and one line per retired device it removed.
+* **No configuration change is needed** - no re-adding of zones or the integration.
+
 ## [2.1.4] - 2026-10-10
 
 Makes the zone → device → entity assignment observable, so a zone that is grouped under another

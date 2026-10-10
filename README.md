@@ -12,6 +12,7 @@ Unlike previous solutions, this integration uses a **direct local TCP implementa
 > Users on Home Assistant 2026.8 or older should stay on `2.0.0`.
 > The `2.1.0-beta.1` / `2.1.0-beta.2` pre-releases are superseded - update to `2.1.4`
 > (HACS shows it without enabling *Show beta versions*).
+> `2.2.0-beta.1` is available for testing with *Show beta versions* enabled.
 
 ## ✅ Requirements
 
@@ -54,9 +55,9 @@ Unlike previous solutions, this integration uses a **direct local TCP implementa
 * Supports up to 16 zones.
 * Configurable device class (Motion, Door, Window, Smoke, etc.) via the UI.
 * Real-time status updates (Open/Closed/Alarm/Tamper).
-* Zones are grouped into one sub-device **per zone type** (`Crow Alarm Windows`,
-  `Crow Alarm Doors`, `Crow Alarm Motion`, `Crow Alarm Smoke`, ...) linked to the main panel,
-  so the type is part of the entity name and entity id.
+* Zones are grouped into a single sub-device (`Crow Alarm Sensors`) linked to the main panel. The
+  zone **type** (door, window, motion, ...) sets the sensor's icon and device class, not the device it
+  is registered on.
 
 
 * **Switches (Outputs):**
