@@ -1,5 +1,33 @@
 # Changelog
 
+## [2.1.4] - 2026-10-10
+
+Makes the zone → device → entity assignment observable, so a zone that is grouped under another
+type's device can be diagnosed from the log and from the diagnostics download alone. No behaviour
+change beyond that: the repairs from 2.1.3 are unchanged.
+
+### ✨ Added
+
+* **`zone_registry` in the diagnostics download** (Settings → Devices & Services → the integration →
+  ⋮ → *Download diagnostics*). Per zone it lists the configured `name` and `type` next to the device
+  the entity is *actually* registered on - `entity_id`, `device_id`, `device_name`,
+  `device_identifiers` - plus the device/identifier the type expects. The device an entity is linked
+  to is not shown anywhere in the Home Assistant UI, which makes this the quickest way to see
+  whether an entity sits where its type says it should.
+
+### 🛠 Changed
+
+* The zone alignment now logs the device it resolved for **every** zone at `DEBUG`
+  (`Zone 4 'Küchenfenster' (window) -> device 'Crow Alarm Windows', entity
+  binary_sensor.crow_alarm_windows_kuchenfenster`) and an `INFO` line whenever it moves or renames
+  one, so a setup that changed nothing is distinguishable from one that repaired something.
+* The type → device mapping has a single accessor (`const.zone_device()`), used by the
+  binary-sensor platform and by diagnostics.
+
+> **Nothing to configure.** Update, restart once, and - if a zone still shows up under the wrong
+> device - send the `Zone types: ...` and `Zone N ... -> device ...` log lines or the diagnostics
+> download.
+
 ## [2.1.3] - 2026-10-10
 
 Repairs the zone devices and entity ids of installations whose zones were re-typed after

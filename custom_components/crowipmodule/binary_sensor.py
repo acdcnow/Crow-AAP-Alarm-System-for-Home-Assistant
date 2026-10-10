@@ -34,6 +34,7 @@ from .const import (
     SIGNAL_SYSTEM_UPDATE,
     SIGNAL_ZONE_UPDATE,
     ZONE_DEVICES,
+    zone_device,
 )
 from .device import CrowRuntimeData, build_device_info
 
@@ -62,7 +63,7 @@ def zone_unique_id(zone_number: int) -> str:
 
 def zone_device_name(zone_type: str) -> str:
     """Return the device name a zone of this type is grouped into."""
-    return ZONE_DEVICES.get(zone_type, (IDENTIFIER_ZONE_OTHER, DEVICE_NAME_ZONE_OTHER))[1]
+    return zone_device(zone_type)[1]
 
 
 def zone_device_info(
@@ -73,9 +74,7 @@ def zone_device_info(
     Both the entity and the registry alignment below build their device from
     here, so an entity and its registry entry can never disagree about it.
     """
-    identifier, name = ZONE_DEVICES.get(
-        zone_type, (IDENTIFIER_ZONE_OTHER, DEVICE_NAME_ZONE_OTHER)
-    )
+    identifier, name = zone_device(zone_type)
     return build_device_info(
         name=name,
         host=host,
@@ -141,6 +140,9 @@ def _async_align_zone_entities(
             Platform.BINARY_SENSOR, DOMAIN, unique_id
         )
         if entity_id is None:
+            _LOGGER.debug(
+                "Zone %s %r is not registered yet", zone_number, zone_info.get("name")
+            )
             continue
 
         entry = registry.async_get(entity_id)
@@ -161,14 +163,32 @@ def _async_align_zone_entities(
             # handing that name to every entity id generated from it, which is
             # exactly how a window zone ends up called ``..._doors_<name>``.
             _LOGGER.warning(
-                "Device %s is named %r but should be %r - correcting the name",
+                "Zone device %s is named %r but should be %r - correcting the name",
                 device.id,
                 device.name,
                 expected_name,
             )
             device = devices.async_update_device(device.id, name=expected_name)
 
+        previous_device_id = entry.device_id
         entry = registry.async_update_entity(entity_id, device_id=device.id)
+        if previous_device_id != entry.device_id:
+            _LOGGER.info(
+                "Zone %s %r (%s) moved to device %r",
+                zone_number,
+                zone_info.get("name"),
+                zone_type,
+                device.name,
+            )
+
+        _LOGGER.debug(
+            "Zone %s %r (%s) -> device %r, entity %s",
+            zone_number,
+            zone_info.get("name"),
+            zone_type,
+            device.name,
+            entry.entity_id,
+        )
 
         if not _entity_id_was_generated_for_another_type(entry.entity_id, zone_type):
             continue

@@ -132,6 +132,7 @@ class FakeDeviceEntry:
         self.fields = fields
         self.name = fields.get("name")
         self.name_by_user = None
+        self.identifiers = fields.get("identifiers") or set()
 
 
 class FakeDeviceRegistry:
@@ -167,6 +168,9 @@ class FakeDeviceRegistry:
             entry.fields["name"] = name
             entry.name = name
         return entry
+
+    def async_get(self, device_id, **kwargs):
+        return next((e for e in self.entries.values() if e.id == device_id), None)
 
 
 REGISTRY = FakeDeviceRegistry()
@@ -216,6 +220,7 @@ class FakeRegistryEntry:
         self.name = name
         self.suggested_object_id = None
         self.has_entity_name = has_entity_name
+        self.disabled_by = None
 
 
 class FakeEntityRegistry:
@@ -263,6 +268,11 @@ class FakeEntityRegistry:
 
 ENTITY_REGISTRY = FakeEntityRegistry()
 er.async_get = lambda hass: ENTITY_REGISTRY
+er.async_entries_for_config_entry = lambda registry, config_entry_id: [
+    entry
+    for entry in registry.entries.values()
+    if entry.config_entry_id == config_entry_id
+]
 
 # --- homeassistant.helpers.dispatcher --------------------------------------- #
 disp = mod("homeassistant.helpers.dispatcher")
@@ -900,6 +910,26 @@ async def main() -> None:
     )
     check("diagnostics reports connection state", result["connected"] is False)
     check("diagnostics includes zones", "zones" in result["state"])
+
+    report = result["zone_registry"]
+    check("diagnostics includes the zone registry report", isinstance(report, dict), str(report))
+    check(
+        "diagnostics reports the expected device of a zone",
+        report["1"]["expected_device"] == "Crow Alarm Doors"
+        and report["1"]["expected_device_identifier"] == "crow_doors",
+        str(report["1"]),
+    )
+    check(
+        "diagnostics reports the repaired entity and its real device",
+        report["1"]["entity_id"] == "binary_sensor.crow_alarm_doors_front_door"
+        and report["1"]["device_identifiers"] == ["crow_doors"],
+        str(report["1"]),
+    )
+    check(
+        "diagnostics reports a zone that has no entity yet",
+        "entity_id" not in report["4"],
+        str(report["4"]),
+    )
 
     # ---------------------------------------------------------------- #
     print("\n== configuration_url hardening ==")

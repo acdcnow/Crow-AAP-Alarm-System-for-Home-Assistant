@@ -87,6 +87,15 @@ ZONE_DEVICES = {
 IDENTIFIER_ZONE_OTHER = "crow_sensors"
 DEVICE_NAME_ZONE_OTHER = "Crow Alarm Sensors"
 
+
+def zone_device(zone_type: str) -> tuple[str, str]:
+    """Return the ``(identifier, name)`` of the device a zone type groups into.
+
+    Single source of truth for the type -> device mapping; used by the
+    binary-sensor platform and by the diagnostics report.
+    """
+    return ZONE_DEVICES.get(zone_type, (IDENTIFIER_ZONE_OTHER, DEVICE_NAME_ZONE_OTHER))
+
 # Signals
 SIGNAL_ZONE_UPDATE = "crowipmodule.zones_updated"
 SIGNAL_AREA_UPDATE = "crowipmodule.areas_updated"

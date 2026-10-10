@@ -2,7 +2,7 @@
 
 **Project:** Crow/AAP Alarm IP Module for Home Assistant
 **Integration domain:** `crowipmodule`
-**Branch:** `master` · **Version:** `2.1.3` · **Status:** released
+**Branch:** `master` · **Version:** `2.1.4` · **Status:** released
 **Last updated:** 2026-10-10
 
 This document specifies **how** the integration is built: modules, signatures, data shapes,
@@ -511,7 +511,11 @@ for every existing registry entry (`unique_id` = `zone_unique_id(n)`, scoped to 
    `entity_registry.async_regenerate_entity_id()` and renames the entry.
 
 The flow also logs the zone → type map it is working from (`Zone types: 1 'Eingangstür'=door, ...`),
-so a zone that is grouped unexpectedly can be traced back to the type actually stored for it.
+so a zone that is grouped unexpectedly can be traced back to the type actually stored for it, and the
+alignment logs the device it resolved per zone at `DEBUG`. The same facts - plus the device the entity
+is *actually* linked to, which no Home Assistant view shows - are part of the diagnostics download
+(`zone_registry`: `name`, `type`, `expected_device`, `entity_id`, `device_name`, `device_identifiers`;
+see `diagnostics._zone_registry_report`).
 
 An id the user chose themselves never matches another zone device's prefix, so it is moved but
 never renamed. Every correction is logged at info level. `zone_device_info()` is the single
