@@ -9,11 +9,13 @@ from homeassistant.components.binary_sensor import (
     BinarySensorEntity,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_HOST, EntityCategory
+from homeassistant.const import CONF_HOST, EntityCategory, Platform
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.util import slugify
 
 from .const import (
     CONF_OBJ_BATTERY,
@@ -25,6 +27,7 @@ from .const import (
     CONF_ZONES,
     DEVICE_NAME,
     DEVICE_NAME_ZONE_OTHER,
+    DOMAIN,
     IDENTIFIER_ZONE_OTHER,
     MODEL_IP_MODULE_ZONE,
     SIGNAL_CONNECTION_UPDATE,
@@ -48,6 +51,137 @@ _ZONE_DEVICE_CLASSES = {
     "safety": BinarySensorDeviceClass.SAFETY,
 }
 
+
+def zone_unique_id(zone_number: int) -> str:
+    """Return the unique id of a zone's binary sensor.
+
+    Frozen - the registry alignment below looks zone entities up by it.
+    """
+    return f"crow_zone_{zone_number}"
+
+
+def zone_device_name(zone_type: str) -> str:
+    """Return the device name a zone of this type is grouped into."""
+    return ZONE_DEVICES.get(zone_type, (IDENTIFIER_ZONE_OTHER, DEVICE_NAME_ZONE_OTHER))[1]
+
+
+def zone_device_info(
+    runtime_data: CrowRuntimeData, host: str, zone_type: str
+) -> DeviceInfo:
+    """Return the ``DeviceInfo`` of the device a zone type is grouped into.
+
+    Both the entity and the registry alignment below build their device from
+    here, so an entity and its registry entry can never disagree about it.
+    """
+    identifier, name = ZONE_DEVICES.get(
+        zone_type, (IDENTIFIER_ZONE_OTHER, DEVICE_NAME_ZONE_OTHER)
+    )
+    return build_device_info(
+        name=name,
+        host=host,
+        identifier=identifier,
+        model=MODEL_IP_MODULE_ZONE,
+        sw_version=runtime_data.firmware,
+        via_device_id=runtime_data.device_id,
+    )
+
+
+def _entity_id_was_generated_for_another_type(entity_id: str, zone_type: str) -> bool:
+    """Return whether an entity id still names another zone type's device.
+
+    An entity id is ``<domain>.<device name> <entity name>``, so one that was
+    generated while the zone still had a different type still starts with that
+    type's device name.
+    """
+    object_id = entity_id.partition(".")[2]
+    current = slugify(zone_device_name(zone_type))
+    for name in (_all_zone_device_names()):
+        if name != current and object_id.startswith(f"{name}_"):
+            return True
+    return False
+
+
+def _all_zone_device_names() -> set[str]:
+    """Return the slugified device names of every zone group plus the fallback."""
+    names = {slugify(name) for _, name in ZONE_DEVICES.values()}
+    names.add(slugify(DEVICE_NAME_ZONE_OTHER))
+    return names
+
+
+@callback
+def _async_align_zone_entities(
+    hass: HomeAssistant,
+    runtime_data: CrowRuntimeData,
+    host: str,
+    configured_zones: dict,
+) -> None:
+    """Re-link existing zone entities to the device of their configured type.
+
+    Home Assistant links an entity to a device - and derives its entity id from
+    that device's name - only when the entity is registered for the very first
+    time. A later device change moves the entity but leaves the entity id
+    naming the old device, so a zone whose type was changed afterwards keeps an
+    entity id of the type it once had (a door zone called
+    ``..._windows_terrassentur``, for example).
+
+    Re-derive the device and the entity id from the configured type here, before
+    the entities are created, so both always match the type the zone has now.
+    """
+    registry = er.async_get(hass)
+    devices = dr.async_get(hass)
+
+    for zone_key, zone_info in configured_zones.items():
+        try:
+            zone_number = int(zone_key)
+        except (TypeError, ValueError):
+            continue
+
+        unique_id = zone_unique_id(zone_number)
+        entity_id = registry.async_get_entity_id(
+            Platform.BINARY_SENSOR, DOMAIN, unique_id
+        )
+        if entity_id is None:
+            continue
+
+        entry = registry.async_get(entity_id)
+        if entry is None or entry.config_entry_id != runtime_data.entry_id:
+            continue
+
+        zone_type = zone_info.get("type")
+        device = devices.async_get_or_create(
+            config_entry_id=entry.config_entry_id,
+            **zone_device_info(runtime_data, host, zone_type),
+        )
+        entry = registry.async_update_entity(entity_id, device_id=device.id)
+
+        if not _entity_id_was_generated_for_another_type(entry.entity_id, zone_type):
+            continue
+
+        expected_id = registry.async_regenerate_entity_id(entry)
+        if expected_id == entry.entity_id:
+            continue
+
+        try:
+            registry.async_update_entity(entry.entity_id, new_entity_id=expected_id)
+        except ValueError as err:  # noqa: PERF203 - one bad zone must not stop the rest
+            _LOGGER.warning(
+                "Could not rename zone entity %s to %s: %s",
+                entry.entity_id,
+                expected_id,
+                err,
+            )
+            continue
+
+        _LOGGER.info(
+            "Zone %s is a %s now: moved %s to %s and renamed it to %s",
+            zone_number,
+            zone_type,
+            entry.entity_id,
+            device.name,
+            expected_id,
+        )
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -67,11 +201,15 @@ async def async_setup_entry(
         for i in range(1, 17):
             configured_zones[str(i)] = {"name": f"Zone {i}", "type": "window"}
 
+    # Bring zone entities that were registered under an earlier type onto the
+    # device of the type the zone has now (before they are added again).
+    _async_align_zone_entities(hass, runtime_data, host, configured_zones)
+
     for zone_num_str, zone_info in configured_zones.items():
         try:
             zone_num = int(zone_num_str)
             entities.append(CrowZoneSensor(
-                runtime_data, host, zone_num, zone_info["name"], zone_info["type"]
+                runtime_data, host, zone_num, zone_info["name"], zone_info.get("type")
             ))
         except ValueError:
              _LOGGER.warning("Skipping invalid zone config key: %s", zone_num_str)
@@ -128,7 +266,7 @@ class CrowZoneSensor(CrowBaseEntity):
         self._attr_device_class = _ZONE_DEVICE_CLASSES.get(zone_type)
         if self._attr_device_class is None and zone_type:
             _LOGGER.warning("Unknown zone type '%s' for zone %s; no device class set", zone_type, zone_number)
-        self._attr_unique_id = f"crow_zone_{zone_number}"
+        self._attr_unique_id = zone_unique_id(zone_number)
         self._info = runtime_data.controller.zone_state.get(
             zone_number, {"status": {"open": False}}
         )
@@ -172,18 +310,7 @@ class CrowZoneSensor(CrowBaseEntity):
         The identifier tuple based ``via_device`` used before is deprecated in
         Home Assistant and is removed in 2027.8.
         """
-        device_identifier, device_name = ZONE_DEVICES.get(
-            self._zone_type, (IDENTIFIER_ZONE_OTHER, DEVICE_NAME_ZONE_OTHER)
-        )
-
-        return build_device_info(
-            name=device_name,
-            host=self._host,
-            identifier=device_identifier,
-            model=MODEL_IP_MODULE_ZONE,
-            sw_version=self._runtime_data.firmware,
-            via_device_id=self._runtime_data.device_id,
-        )
+        return zone_device_info(self._runtime_data, self._host, self._zone_type)
 
 
 class CrowSystemStatusSensor(CrowBaseEntity):

@@ -461,12 +461,12 @@ no code available it logs an error and sends nothing, rather than emitting a dig
 
 | Aspect | Value |
 |---|---|
-| `unique_id` | `crow_zone_{n}` |
+| `unique_id` | `crow_zone_{n}` (`zone_unique_id(n)`) |
 | `name` | zone name from options |
 | `device_class` | from `_ZONE_DEVICE_CLASSES` (below) |
 | `is_on` | `zone_state[n]["status"]["open"]` |
 | `extra_state_attributes` | the zone `status` dict (`open`, `bypass`, `alarm`, `tamper`) |
-| `device_info` | the device of the zone's **configured type** (`ZONE_DEVICES`), with `via_device_id` |
+| `device_info` | `zone_device_info()`: the device of the zone's **configured type** (`ZONE_DEVICES`), with `via_device_id` |
 
 | Zone type | `BinarySensorDeviceClass` |
 |---|---|
@@ -489,6 +489,29 @@ entity id through `has_entity_name`. ✱ An unrecognised type gets no device cla
 that one device, so a smoke zone and a motion zone shared it.) Comparing against the enum (not a
 bare string) is deliberate: `BinarySensorDeviceClass` is a `StrEnum`, so the comparison holds
 either way, but the enum form survives refactors.
+
+#### 7.2.1 Zone registry alignment (`_async_align_zone_entities`)
+
+Home Assistant links an entity to a device — and derives the entity id from that device's name —
+**only when the entity is registered for the first time**. A later `device_info` change updates
+`device_id`, but the entity id keeps naming the device the entity was born on. A zone whose type
+was changed after its entity was created therefore ended up on the right device with an id naming
+the old one (`binary_sensor.crow_alarm_windows_terrassentur` for a door zone).
+
+Before the zone entities are created, `async_setup_entry` therefore walks `options["zones"]` and,
+for every existing registry entry (`unique_id` = `zone_unique_id(n)`, scoped to the entry via
+`runtime_data.entry_id`):
+
+1. creates/gets the device of the type the zone has **now** and writes it as the entry's
+   `device_id`;
+2. if the entity id still starts with another zone type's device name
+   (`_entity_id_was_generated_for_another_type`), rebuilds it with
+   `entity_registry.async_regenerate_entity_id()` and renames the entry.
+
+An id the user chose themselves never matches another zone device's prefix, so it is moved but
+never renamed. Every correction is logged at info level. `zone_device_info()` is the single
+constructor for a zone device's `DeviceInfo`, shared by the entity and the alignment, so the two
+cannot disagree.
 
 **`CrowSystemStatusSensor`** — six diagnostic sensors.
 

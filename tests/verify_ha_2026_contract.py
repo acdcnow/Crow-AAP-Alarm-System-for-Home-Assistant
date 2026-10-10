@@ -15,8 +15,10 @@ from __future__ import annotations
 import asyncio
 import enum
 import pathlib
+import re
 import sys
 import types
+import unicodedata
 from typing import NotRequired, Required, TypedDict
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -128,6 +130,8 @@ class FakeDeviceEntry:
     def __init__(self, device_id: str, fields: dict) -> None:
         self.id = device_id
         self.fields = fields
+        self.name = fields.get("name")
+        self.name_by_user = None
 
 
 class FakeDeviceRegistry:
@@ -161,6 +165,97 @@ class FakeDeviceRegistry:
 REGISTRY = FakeDeviceRegistry()
 dr.DeviceInfo = DeviceInfo
 dr.async_get = lambda hass: REGISTRY
+ha_helpers.device_registry = dr
+
+
+def device_id_for_identifier(identifier: str) -> str:
+    """Return the registry id of a device created for an identifier."""
+    return REGISTRY.entries[(crow_const_domain, identifier)].id
+
+
+crow_const_domain = "crowipmodule"
+
+# --- homeassistant.util ----------------------------------------------------- #
+ha_util = mod("homeassistant.util")
+
+
+def slugify(text: str) -> str:
+    """Same result as homeassistant.util.slugify for the names used here."""
+    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z0-9]+", "_", text.lower()).strip("_")
+
+
+ha_util.slugify = slugify
+ha.util = ha_util
+
+# --- homeassistant.helpers.entity_registry ---------------------------------- #
+er = mod("homeassistant.helpers.entity_registry")
+ha_helpers.entity_registry = er
+
+
+class FakeRegistryEntry:
+    """The subset of RegistryEntry the integration reads/writes."""
+
+    def __init__(self, entity_id, unique_id, *, device_id, config_entry_id="entry-1",
+                 object_id_base=None, name=None, has_entity_name=True):
+        self.entity_id = entity_id
+        self.unique_id = unique_id
+        self.domain = entity_id.partition(".")[0]
+        self.platform = "crowipmodule"
+        self.device_id = device_id
+        self.config_entry_id = config_entry_id
+        self.area_id = None
+        self.object_id_base = object_id_base
+        self.name = name
+        self.suggested_object_id = None
+        self.has_entity_name = has_entity_name
+
+
+class FakeEntityRegistry:
+    """Mimics the parts of EntityRegistry the zone alignment uses."""
+
+    def __init__(self) -> None:
+        self.entries: dict[str, FakeRegistryEntry] = {}
+
+    def add(self, entry: FakeRegistryEntry) -> None:
+        self.entries[entry.entity_id] = entry
+
+    def async_get(self, entity_id):
+        return self.entries.get(entity_id)
+
+    def async_get_entity_id(self, domain, platform, unique_id):
+        for entry in self.entries.values():
+            if entry.unique_id == unique_id and entry.domain == domain:
+                return entry.entity_id
+        return None
+
+    def async_update_entity(self, entity_id, *, device_id=..., new_entity_id=...):
+        entry = self.entries[entity_id]
+        if device_id is not ...:
+            entry.device_id = device_id
+        if new_entity_id is not ...:
+            self.entries.pop(entity_id)
+            entry.entity_id = new_entity_id
+            self.entries[new_entity_id] = entry
+        return entry
+
+    def async_regenerate_entity_id(self, entry, *, reserved_entity_ids=None):
+        """Mirror HA: <domain>.<device name> <object_id_base>, slugified."""
+        device = next(
+            (d for d in REGISTRY.entries.values() if d.id == entry.device_id), None
+        )
+        device_name = (device.fields.get("name") if device else "") or ""
+        base = f"{device_name} {entry.object_id_base}".strip()
+        candidate = f"{entry.domain}.{slugify(base)}"
+        tries = 1
+        while candidate in self.entries and candidate != entry.entity_id:
+            tries += 1
+            candidate = f"{entry.domain}.{slugify(base)}_{tries}"
+        return candidate
+
+
+ENTITY_REGISTRY = FakeEntityRegistry()
+er.async_get = lambda hass: ENTITY_REGISTRY
 
 # --- homeassistant.helpers.dispatcher --------------------------------------- #
 disp = mod("homeassistant.helpers.dispatcher")
@@ -476,6 +571,34 @@ async def main() -> None:
 
     # ---------------------------------------------------------------- #
     print("\n== Zone device grouping ==")
+    # The platform registers a device per zone type before it links an entity to
+    # it - do the same here so the fixture below can reference those devices.
+    for zone_type in ("door", "motion", "window", "smoke"):
+        REGISTRY.async_get_or_create(
+            config_entry_id=entry.entry_id,
+            **binary_sensor.zone_device_info(
+                entry.runtime_data, "192.168.1.50", zone_type
+            ),
+        )
+
+    # Registry state as it looks for a user who changed zone types after the
+    # entities were created: the door zone 1 is still registered on the windows
+    # device and its entity id still names it.
+    ENTITY_REGISTRY.add(FakeRegistryEntry(
+        "binary_sensor.crow_alarm_windows_front_door", "crow_zone_1",
+        device_id=device_id_for_identifier("crow_windows"), object_id_base="Front Door",
+    ))
+    # A window zone that is already where it belongs - must be left alone.
+    ENTITY_REGISTRY.add(FakeRegistryEntry(
+        "binary_sensor.crow_alarm_windows_window", "crow_zone_3",
+        device_id=device_id_for_identifier("crow_windows"), object_id_base="Window",
+    ))
+    # A user-chosen entity id: the move is applied, the id is never renamed.
+    ENTITY_REGISTRY.add(FakeRegistryEntry(
+        "binary_sensor.meine_bewegung", "crow_zone_2",
+        device_id=device_id_for_identifier("crow_windows"), object_id_base="Kitchen",
+    ))
+
     collected.clear()
     await binary_sensor.async_setup_entry(hass, entry, collector)
     zones = [e for e in collected if type(e).__name__ == "CrowZoneSensor"]
@@ -542,6 +665,29 @@ async def main() -> None:
         and by_name["Front Door"]._attr_device_class is BinarySensorDeviceClass.DOOR,
     )
     check("zone entities do not poll", zones[0].should_poll is False)
+
+    print("\n== Zone registry alignment ==")
+    doors_id = device_id_for_identifier("crow_doors")
+    motion_id = device_id_for_identifier("crow_motion")
+    stale = ENTITY_REGISTRY.async_get("binary_sensor.crow_alarm_windows_front_door")
+    check("the stale entity id is gone", stale is None)
+    repaired = ENTITY_REGISTRY.async_get("binary_sensor.crow_alarm_doors_front_door")
+    check(
+        "a door zone registered on the windows device is moved to the doors device",
+        repaired is not None and repaired.device_id == doors_id,
+    )
+    untouched = ENTITY_REGISTRY.async_get("binary_sensor.crow_alarm_windows_window")
+    check(
+        "a window zone already on the windows device keeps its entity id",
+        untouched is not None and untouched.entity_id == "binary_sensor.crow_alarm_windows_window",
+    )
+    renamed = ENTITY_REGISTRY.async_get("binary_sensor.meine_bewegung")
+    check(
+        "a user-chosen entity id is moved but never renamed",
+        renamed is not None
+        and renamed.device_id == motion_id
+        and renamed.entity_id == "binary_sensor.meine_bewegung",
+    )
 
     print("\n== System status sensors ==")
     system = [e for e in collected if type(e).__name__ == "CrowSystemStatusSensor"]

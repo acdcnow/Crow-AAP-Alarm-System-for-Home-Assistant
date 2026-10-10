@@ -24,6 +24,9 @@ class CrowRuntimeData:
     """Objects shared between a config entry and its entity platforms."""
 
     controller: CrowIPAlarmPanel
+    #: Config entry id of the entry the runtime data belongs to. Used to scope
+    #: entity registry lookups to this entry.
+    entry_id: str | None = None
     #: Device registry id of the main panel, used as ``via_device_id`` for the
     #: zone sub-devices. ``None`` while the hub device has not been registered.
     device_id: str | None = None

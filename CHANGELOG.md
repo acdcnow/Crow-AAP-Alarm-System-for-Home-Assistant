@@ -4,6 +4,17 @@
 
 ### 🔧 Fixed
 
+* **Existing zone entities now follow their zone's type.** Home Assistant links an
+  entity to a device - and derives its entity id from that device's name - only when
+  the entity is registered for the **first time**. An entity created while a zone
+  still had another type therefore kept the old device *and* an entity id naming it,
+  so a door zone could sit on the *Crow Alarm Windows* device as
+  `binary_sensor.crow_alarm_windows_terrassentur` no matter what the config flow said.
+  On every setup the integration now re-derives the device **and** the entity id from
+  the configured type, so the zone ends up on its own type's device with a matching
+  entity id (`binary_sensor.crow_alarm_doors_terrassentur`). The entity id is only
+  rebuilt when it still carries another zone type's device name, so an id you chose
+  yourself is never overwritten; every correction is logged as an info line.
 * **Zone sub-devices are grouped per zone type again.** A zone is now registered on
   the device that matches its **configured type**: `window` -> *Crow Alarm Windows*,
   `door` -> *Crow Alarm Doors*, `motion` -> *Crow Alarm Motion*, `smoke` ->
@@ -30,11 +41,9 @@
   strips the different aspect ratio leaves over are filled with a continuation of the
   banner's own background (the edge band is mirrored and faded towards the rim).
 
-> **Note after updating:** if a zone's type was changed in an earlier release, its
-> entity id was fixed when it was first created and is not renamed by Home Assistant.
-> Rename the entity once under **Settings > Devices & Services > Entities** (or re-add
-> the zone) if its entity id still names the old type. An empty *Crow Alarm Sensors*
-> device left over from 2.1.1 can simply be deleted.
+> **After updating:** reload the integration (or restart Home Assistant) once so the
+> zone entities are re-registered and the repair above runs. An empty *Crow Alarm
+> Sensors* device left over from 2.1.1 can simply be deleted.
 
 ## [2.1.1] - 2026-10-09
 

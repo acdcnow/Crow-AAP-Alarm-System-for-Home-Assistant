@@ -74,7 +74,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     fw_version = entry.data.get(CONF_FW_VERSION, DEFAULT_FW_VERSION)
     fw_date = entry.data.get(CONF_FW_DATE, DEFAULT_FW_DATE)
     entry.runtime_data = CrowRuntimeData(
-        controller=controller, firmware=f"{fw_version} ({fw_date})"
+        controller=controller,
+        entry_id=entry.entry_id,
+        firmware=f"{fw_version} ({fw_date})",
     )
 
     # The panel client runs in its own thread, so every callback has to hop back
