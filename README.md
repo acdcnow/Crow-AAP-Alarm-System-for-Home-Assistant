@@ -8,11 +8,13 @@ This is a custom integration for **Home Assistant** to control **Crow Runner**, 
 
 Unlike previous solutions, this integration uses a **direct local TCP implementation** (the driver is vendored inside the integration, so no external Python dependency is installed) to ensure robust connection handling, specific command sequences (`Code` -> `Command` -> `Enter`), and accurate status parsing.
 
-> **Current release: `2.1.4`.** Targets Home Assistant 2026.9.3.
+> **Current release: `2.2.0`.** Targets Home Assistant 2026.9.3.
 > Users on Home Assistant 2026.8 or older should stay on `2.0.0`.
-> The `2.1.0-beta.1` / `2.1.0-beta.2` pre-releases are superseded - update to `2.1.4`
+> `2.2.0` reworks the zone devices: **all zone entities now live on one device**
+> (*Crow Alarm Sensors*) and the retired per-type devices are cleaned up automatically.
+> Existing entity ids are left untouched, so no dashboard or automation needs editing.
+> The `2.1.0-beta.*` and `2.2.0-beta.1` pre-releases are superseded - update to `2.2.0`
 > (HACS shows it without enabling *Show beta versions*).
-> `2.2.0-beta.1` is available for testing with *Show beta versions* enabled.
 
 ## ✅ Requirements
 

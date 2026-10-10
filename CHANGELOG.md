@@ -1,8 +1,9 @@
 # Changelog
 
-## [2.2.0-beta.1] - 2026-10-10
+## [2.2.0] - 2026-10-10
 
-> ⚠️ **Pre-release - enable *Show beta versions* in HACS to test it.**
+The promotion of `2.2.0-beta.1` to stable - same behaviour, no configuration change. The beta was
+published for testing and is superseded by this release.
 
 **All zone entities now live on one device** (`Crow Alarm Sensors`) instead of one device per zone
 type. Home Assistant links an entity to a device only when it is registered for the very first time,

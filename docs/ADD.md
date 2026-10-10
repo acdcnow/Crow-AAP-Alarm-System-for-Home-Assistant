@@ -2,10 +2,10 @@
 
 **Project:** Crow/AAP Alarm IP Module for Home Assistant
 **Integration domain:** `crowipmodule`
-**Branch:** `HA2026_09_dev`
-**Version:** `2.1.0-beta.1`
-**Status:** Pre-release, implementation complete
-**Last updated:** 2026-09-21
+**Branch:** `master`
+**Version:** `2.2.0`
+**Status:** Released
+**Last updated:** 2026-10-10
 
 ---
 
@@ -49,7 +49,7 @@ Out of scope:
 | G3 | Stay usable when the panel or network is unavailable | Availability driven by real connection state; supervised reconnect with backoff |
 | G4 | Report every panel signal the protocol exposes | 16 zones, 2 areas, 8 outputs, 21 system statuses |
 | G5 | Be diagnosable from a user's Home Assistant instance | Downloadable diagnostics with redaction, plus a "System Status" text sensor |
-| G6 | Present as a first-class integration | Local `brand/` assets, UI config flow, 5 translations, device registry grouping |
+| G6 | Present as a first-class integration | Local `brand/` assets, UI config flow, 5 translations, device registry (hub + one zone device) |
 
 ### 2.2 Non-goals
 
@@ -184,15 +184,17 @@ untyped, unnamespaced, and leaks if a platform fails to unload.
 @dataclass
 class CrowRuntimeData:
     controller: CrowIPAlarmPanel
+    entry_id: str | None = None    # config entry id, to scope registry lookups
     device_id: str | None = None   # device registry id of the hub, for via_device_id
     firmware: str | None = None    # "<version> (<date>)", for sw_version
 ```
 
 **Consequences.**
 
-* ✔ Lifetime is tied to the entry; unload cannot leak.
-* ✔ One object carries every shared dependency, so platform setup is a single attribute read.
-* ✔ `device_id` gives the zone sub-devices a valid `via_device_id` (see DEC-5).
+* âœ” Lifetime is tied to the entry; unload cannot leak.
+* âœ” One object carries every shared dependency, so platform setup is a single attribute read.
+* âœ” `device_id` gives the zone sub-devices a valid `via_device_id` (see DEC-5).
+* âœ” `entry_id` scopes the entity-registry lookups of the zone alignment (see DEC-7).
 
 ### 5.5 DEC-5 — Register the hub device before forwarding platforms
 
@@ -226,7 +228,33 @@ drops and recover on reconnect.
 * ✔ Users and automations can distinguish "disarmed" from "unknown".
 * ✔ `Diagnostics` and the System Status sensor expose `connected` explicitly.
 * ✘ A brief network blip marks entities unavailable, which some automations treat as a state change.
+### 5.7 DEC-7 â€” One device for all zone entities
 
+**Context.** Releases 2.1.x gave every zone type its own device (*Crow Alarm Windows*, *Crow Alarm
+Doors*, *Crow Alarm Motion*, ...) so that the type became part of the entity name and entity id.
+That turned out to be a trap: Home Assistant links an entity to a device **only when the entity is
+registered for the very first time**. An entity created while a zone still had another type stayed on
+the device of that former type, and re-configuring the zone in the UI did not move it - the device
+list kept showing a door zone under *Windows* with no way to correct it from the UI.
+
+**Decision.** All zone entities are registered on the single *Crow Alarm Sensors* device
+(`const.IDENTIFIER_ZONE`). The zone type still selects the binary-sensor **device class** (the icon:
+door, window, motion, smoke, ...), but never the device. `binary_sensor._async_align_zone_entities()`
+re-links existing zone entities to that device on every setup, so an installation that has been
+through the split layout is corrected by a restart, and
+`_remove_retired_zone_devices()` deletes the retired per-type devices once nothing is registered on
+them.
+
+**Consequences.**
+
+* âœ” There is no second device left for a zone to be stuck on, whatever order zones were configured
+  or re-typed in.
+* âœ” Entity ids are never rewritten by the integration: they are stable handles for dashboards and
+  automations, and a zone that keeps its id keeps working after the move.
+* âœ˜ An entity id may still name a device the entity no longer hangs off
+  (`binary_sensor.crow_alarm_windows_terrassentur` on *Crow Alarm Sensors*). That is cosmetic; the
+  diagnostics `zone_registry` report shows the real device link.
+* âœ˜ The type is no longer visible in the device name, so the icon and the entity name carry it.
 ---
 
 ## 6. Runtime view
@@ -347,7 +375,7 @@ Verified against the real 2026.9.3 sources; each row is asserted by
 ```
 <config>/custom_components/crowipmodule/
 ```
-Installed by HACS from GitHub release archive `2.1.0-beta.1` (or the branch), or copied manually.
+Installed by HACS from GitHub release archive `2.2.0` (or the branch), or copied manually.
 Home Assistant imports the package at startup; the config entry lives in
 `.storage/core.config_entries`, not in YAML. Per-entry runtime objects are constructed at setup and
 released at unload.

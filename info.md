@@ -6,12 +6,18 @@ It communicates directly with the IP module over the local network to provide re
 
 ## ✨ Features
 
-* **Config Flow:** Fully configurable via the Home Assistant UI (no YAML required).
+* **Config Flow:** Fully configurable via the Home Assistant UI (no YAML required). All zones are
+  configured in a single step - one name/type pair per zone.
 * **Alarm Control Panel:** Arm (Away/Stay), Disarm, and Trigger panic alarms for up to 2 Areas (Partitions).
-* **Zones:** Binary sensors for up to 16 zones (Motion, Door, Window, Smoke, etc.).
+* **Zones:** Binary sensors for up to 16 zones. The **type** you pick (Motion, Door, Window, Smoke, ...)
+  sets the icon and device class of the sensor and is selected from a translated dropdown.
 * **Outputs:** Control up to 2 switchable outputs (e.g., Garage Door, Gates).
 * **System Status:** Diagnostic sensors for Mains Power, Battery, Tamper, Phone Line, and Dialler status.
-* **Device Registry:** All entities are grouped under a single "Crow Alarm System" device.
+* **Device Registry:** every zone entity lives on the single **Crow Alarm Sensors** device; the panel
+  itself and the system status sensors live on **Crow Alarm System**. The per-type devices of older
+  releases (Windows, Doors, Motion, ...) are removed automatically once nothing is registered on them.
+* **Diagnostics:** *Download diagnostics* includes a per-zone report of the configured type and the
+  device the entity is really registered on.
 * **Dashboard:** a ready-to-use Lovelace dashboard with a standard and an expert view ships in [`dashboards/`](dashboards/README.md).
 
 ## 📋 Requirements
@@ -47,25 +53,25 @@ This integration uses a 4-step configuration wizard.
 
 ### The Setup Wizard
 
-* **Step 1: Areas**
+* **Step 1: Connection**
+* **IP Address:** The local IP of your alarm module.
+* **Port:** Usually `5002`.
+* Pick the firmware build, how the panel is armed, and how many areas / outputs / zones you have.
+
+
+* **Step 2: Areas**
 * Name your partitions (e.g., "House", "Garage").
 * (Optional) Enter a default code if you want to arm/disarm without typing it every time.
 
 
-* **Step 2: Switches (Outputs)**
+* **Step 3: Switches (Outputs)**
 * Name your controllable outputs (Output 3 & 4), e.g., "Garage Door".
 
 
-* **Step 3: Zones**
-* Name your 16 zones.
-* Select the type for each zone (Motion, Door, Window, Smoke, etc.) from the dropdown.
+* **Step 4: Zones**
+* All zones are on one page: name each zone and pick its type (Motion, Door, Window, Smoke, ...).
+* The type sets the sensor icon; it does not decide which device the sensor lives on.
 * *Tip: Leave unused zones empty.*
-
-
-* **Step 4: Connection**
-* **IP Address:** The local IP of your alarm module.
-* **Port:** Usually `5002`.
-
 
 
 ### Migration from YAML
@@ -95,6 +101,22 @@ Outputs 1 & 2 are usually hardware relays on the board. Outputs 3 & 4 are the co
 Here is a detailed **CHANGELOG** summarizing the refactoring from the original YAML-based code to the new Home Assistant 2025-compliant integration.
 
 # Changelog
+
+## [2.2.0] - Zone devices reworked
+
+**All zone entities now live on one device, *Crow Alarm Sensors*.** Home Assistant links an entity to a
+device only when it is registered for the very first time, so the previous per-type devices (Windows,
+Doors, Motion, ...) could leave a zone on the device of a type it no longer had - and re-configuring
+the zone never moved it.
+
+* Every existing zone entity is moved onto *Crow Alarm Sensors* on the next restart.
+* **Entity ids are left exactly as they are**, so dashboards and automations keep working. Entities
+  created from scratch get `binary_sensor.crow_alarm_sensors_<name>`.
+* The retired per-type devices are removed automatically once nothing is registered on them.
+* The zone **type** still sets the sensor icon and device class (Fenster, Tür, Bewegung, Rauch, ...).
+* *Download diagnostics* now reports, per zone, the configured type and the device the entity is
+  really registered on.
+* No configuration change is needed.
 
 ## [2.0.0] - Refactoring for Home Assistant 2026.09+
 

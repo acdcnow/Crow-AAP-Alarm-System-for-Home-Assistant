@@ -1,8 +1,8 @@
 # Workflows and Diagrams
 
 **Project:** Crow/AAP Alarm IP Module for Home Assistant
-**Branch:** `HA2026_09_dev` · **Version:** `2.1.0-beta.1`
-**Last updated:** 2026-09-21
+**Branch:** `master` · **Version:** `2.2.0`
+**Last updated:** 2026-10-10
 
 Every diagram below is **Mermaid**, so it renders natively on GitHub, in the wiki, and in any
 Mermaid-capable viewer. The narrative companion is the [ADD](ADD.md); the module-level detail is the
@@ -271,7 +271,7 @@ needs Python 3.14.2+.
 > **Important limitation.** GitDiagram analyses the repository's **default branch only**. At the time
 > of writing that is `master`, which still depends on the external `pycrowipmodule` package — the tool
 > said so itself: *"the external pycrowipmodule implementation was not provided."*
-> The diagram therefore describes the **legacy** architecture, not `HA2026_09_dev`.
+> The diagram therefore describes the **legacy** architecture, not `master`.
 
 Re-generate or explore it interactively at:
 **https://gitdiagram.com/acdcnow/crow-aap-alarm-system-for-home-assistant**
@@ -318,7 +318,7 @@ flowchart TD
     class CC legacy
 ```
 
-The same shape in the current (`HA2026_09_dev`) architecture, for comparison — the differences are
+The same shape in the current (`master`) architecture, for comparison — the differences are
 the local driver, the extra sensor/button platforms, `runtime_data`, the hub device and diagnostics:
 
 ```mermaid
@@ -349,12 +349,11 @@ Green nodes mark what the 2026.9 development branch added or changed.
 
 ```mermaid
 flowchart LR
-    Dev["Commit to<br/>HA2026_09_dev"] --> Ver{"All four<br/>checks pass"}
+    Dev["Commit to<br/>master"] --> Ver{"All four<br/>checks pass"}
     Ver -->|no| Dev
     Ver -->|yes| Bump["Bump manifest version<br/>and CHANGELOG"]
-    Bump --> Tag["Annotated tag<br/>no v prefix"]
-    Tag --> Push["Push branch and tag"]
-    Push --> Rel["GitHub pre-release<br/>with release notes"]
-    Rel --> HACS["HACS offers it<br/>when betas are enabled"]
-    Rel --> PR["PR stays open<br/>until promotion to stable"]
+    Bump --> Tag["Tag<br/>no v prefix"]
+    Tag --> Push["Push master and tag"]
+    Push --> Rel["GitHub release<br/>prerelease: true for a beta"]
+    Rel --> HACS["HACS offers it = tag<br/>(betas need Show beta versions)"]
 ```
