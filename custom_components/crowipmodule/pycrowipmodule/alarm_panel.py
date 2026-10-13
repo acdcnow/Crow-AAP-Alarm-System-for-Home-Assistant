@@ -84,6 +84,17 @@ class CrowIPAlarmPanel():
         return bool(self._client and self._client.is_connected)
 
     @property
+    def connected(self):
+        """Return the connection state most recently reported to the caller.
+
+        ``is_connected`` is the raw socket state and can dip for a moment while a
+        dropped link is retried. Entity availability follows this property, which
+        only changes on a real transition - so a short network blip no longer
+        makes every entity flap to *Unavailable* and back.
+        """
+        return bool(self._client and self._client.connected)
+
+    @property
     def callback_connected(self):
         return self._connectedCallback
 

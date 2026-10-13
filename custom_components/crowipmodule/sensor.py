@@ -22,6 +22,7 @@ from .const import (
     SIGNAL_SYSTEM_UPDATE,
 )
 from .device import CrowRuntimeData, build_device_info
+from .entity import CrowConnectionEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ async def async_setup_entry(
     async_add_entities(entities, False)
 
 
-class CrowBaseTextSensor(SensorEntity):
+class CrowBaseTextSensor(CrowConnectionEntity, SensorEntity):
     _attr_has_entity_name = True
     _attr_should_poll = False
 
@@ -60,14 +61,6 @@ class CrowBaseTextSensor(SensorEntity):
         self._runtime_data = runtime_data
         self._controller = runtime_data.controller
         self._host = host
-
-    @property
-    def available(self) -> bool:
-        return self._controller.is_connected
-
-    @callback
-    def _connection_callback(self, _connected) -> None:
-        self.async_write_ha_state()
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -83,10 +76,6 @@ class CrowSystemSensor(CrowBaseTextSensor):
     def __init__(self, runtime_data, host) -> None:
         super().__init__(runtime_data, host)
         self._attr_name = "System Status"
-        self._attr_unique_id = "crow_system_status_text"
-        self._attr_icon = "mdi:shield-home"
-        self._attr_entity_category = EntityCategory.DIAGNOSTIC
-        self._info = runtime_data.me = "System Status"
         self._attr_unique_id = "crow_system_status_text"
         self._attr_icon = "mdi:shield-home"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC

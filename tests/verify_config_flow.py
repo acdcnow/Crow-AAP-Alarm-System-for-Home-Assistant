@@ -302,6 +302,33 @@ async def drive_config_flow() -> dict:
         all(arm_selector(mode) == mode for mode in cf.ARM_SEQUENCES),
     )
 
+    keepalive_validator = validator_for(result["data_schema"], "keepalive_interval")
+    check(
+        "the keep-alive field is present",
+        keepalive_validator is not None,
+        str(keepalive_validator),
+    )
+    check(
+        "the keep-alive default matches the driver's own interval",
+        cf.DEFAULT_KEEPALIVE == 30,
+        str(cf.DEFAULT_KEEPALIVE),
+    )
+    check(
+        "a keep-alive the driver cannot use is rejected",
+        _rejects(keepalive_validator, 0) and _rejects(keepalive_validator, 100000),
+        str(keepalive_validator),
+    )
+    check(
+        "the default and a user-chosen keep-alive are accepted",
+        not _rejects(keepalive_validator, cf.DEFAULT_KEEPALIVE)
+        and not _rejects(keepalive_validator, 120),
+    )
+    check(
+        "the config flow stores the current entry version",
+        cf.CrowConfigFlow.VERSION == cf.CONFIG_ENTRY_VERSION,
+        str(cf.CrowConfigFlow.VERSION),
+    )
+
     payload = {
         "host": "192.168.1.50",
         "port": 5002,

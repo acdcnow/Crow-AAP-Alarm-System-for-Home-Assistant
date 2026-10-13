@@ -18,11 +18,14 @@ It communicates directly with the IP module over the local network to provide re
   releases (Windows, Doors, Motion, ...) are removed automatically once nothing is registered on them.
 * **Diagnostics:** *Download diagnostics* includes a per-zone report of the configured type and the
   device the entity is really registered on.
+* **Connection handling:** a dropped link is retried once before anything is reported, so a short
+  network blip does not make every entity flap to *Unavailable*. A status dump that reports no change
+  writes no entity state at all.
 * **Dashboard:** a ready-to-use Lovelace dashboard with a standard and an expert view ships in [`dashboards/`](dashboards/README.md).
 
 ## 📋 Requirements
 
-* **Home Assistant:** Version 2026.09.0 or newer.
+* **Home Assistant:** Version 2026.10.1 or newer.
 * **Hardware:** Crow Runner or AAP control panel with an installed IP Module.
 * **Network:** The IP Module must be connected to the same network as Home Assistant.
 
@@ -101,6 +104,25 @@ Outputs 1 & 2 are usually hardware relays on the board. Outputs 3 & 4 are the co
 Here is a detailed **CHANGELOG** summarizing the refactoring from the original YAML-based code to the new Home Assistant 2025-compliant integration.
 
 # Changelog
+
+## [2.2.0b1] - Connection handling, Home Assistant 2026.10.1
+
+Fixes the flapping between *Unavailable* and *connected*, and the flood of state
+writes it caused.
+
+* **A short network blip is no longer reported.** A link that had been up is retried once before the
+  disconnect is announced, so a drop that heals within a second causes no `unavailable` / `available`
+  pair and no entity rewrite.
+* **A status dump that reports no change writes no state.** The module repeats its whole status after
+  every `STATUS` probe; a line whose value the panel already has is dropped instead of being forwarded
+  to every entity.
+* **The keep-alive default is 30 s** (the panel driver's own interval) instead of 300 s, which was long
+  enough for the module to close the idle socket by itself. Entries created earlier are migrated
+  automatically; a value you chose yourself is kept and only clamped into a usable range.
+* **No redundant post-connect refresh** - the `STATUS` dump on connect already carries the full state.
+* **Minimum Home Assistant is now 2026.10.1**, and the integration adopts the entity lifecycle hook
+  introduced in 2026.10 (in-place `entity_id` changes).
+* No configuration change is needed.
 
 ## [2.2.0] - Zone devices reworked
 

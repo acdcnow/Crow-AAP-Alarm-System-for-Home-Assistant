@@ -1,11 +1,11 @@
-# Architectural Design Document (ADD)
+# Architecture Concept Document (ACD)
 
 **Project:** Crow/AAP Alarm IP Module for Home Assistant
 **Integration domain:** `crowipmodule`
 **Branch:** `master`
-**Version:** `2.2.0`
-**Status:** Released
-**Last updated:** 2026-10-10
+**Version:** `2.2.0b1`
+**Status:** Beta
+**Last updated:** 2026-10-13
 
 ---
 
@@ -44,9 +44,9 @@ Out of scope:
 
 | # | Goal | How it is met |
 |---|---|---|
-| G1 | Work with Home Assistant **2026.9.3+** without deprecation warnings or removals | See §7 conformance table; `via_device_id`, `entry.runtime_data`, `AddConfigEntryEntitiesCallback` |
+| G1 | Work with Home Assistant **2026.10.1+** without deprecation warnings or removals | See §7 conformance table; `via_device_id`, `entry.runtime_data`, `AddConfigEntryEntitiesCallback`, `async_entity_id_changed` |
 | G2 | Install cleanly through HACS with **no Python dependency** to resolve | Driver vendored under `pycrowipmodule/`; manifest `requirements` removed |
-| G3 | Stay usable when the panel or network is unavailable | Availability driven by real connection state; supervised reconnect with backoff |
+| G3 | Stay usable when the panel or network is unavailable, **without flapping** | Availability driven by the *reported* connection state; a blip is retried before it is reported; a repeated status is not dispatched; supervised reconnect with backoff |
 | G4 | Report every panel signal the protocol exposes | 16 zones, 2 areas, 8 outputs, 21 system statuses |
 | G5 | Be diagnosable from a user's Home Assistant instance | Downloadable diagnostics with redaction, plus a "System Status" text sensor |
 | G6 | Present as a first-class integration | Local `brand/` assets, UI config flow, 5 translations, device registry (hub + one zone device) |
@@ -145,6 +145,8 @@ and a short read timeout (`_RECV_TIMEOUT = 5.0 s`). The timeout doubles as the k
 * ✔ The parser stays simple and synchronous; no `await` inside protocol handling.
 * ✔ A stalled panel cannot stall the Home Assistant event loop.
 * ✔ Reconnect/backoff logic is ordinary sequential code.
+* ✔ The read timeout doubles as the keep-alive tick, so a dropped or silently dead socket is noticed
+  within `_RECV_TIMEOUT` (5 s) without a second timer.
 * ✘ Every callback must be marshalled back to the loop — the single most error-prone part of the
   design (see §6.3).
 * ✘ State is read from two threads, so shared state needs discipline (see RISK-3).
@@ -165,6 +167,15 @@ cares about its own zone number).
 | `SIGNAL_SYSTEM_UPDATE` | attribute name, or `None` | `CrowSystemSensor`, `CrowSystemStatusSensor` |
 | `SIGNAL_OUTPUT_UPDATE` | output number | `CrowOutput` |
 | `SIGNAL_CONNECTION_UPDATE` | `bool` | every entity (drives `available`) |
+
+Two properties keep the churn down, and both are worth preserving when this layer is touched:
+
+* **Only a real change is dispatched.** A handler returns `None` when the value it was given equals
+  the stored one, and `_dispatch_line()` then invokes no callback. The module repeats its whole status
+  after every `STATUS` probe, so without this a keep-alive probe would rewrite every entity every time.
+* **Connection transitions are announced once.** `_notify_connection()` remembers the last state it
+  reported and drops a repeat, so the failure of a reconnect attempt does not re-announce the outage
+  that was already announced when the socket was lost.
 
 **Consequences.**
 
@@ -219,15 +230,19 @@ which only exists after the parent device is registered.
 **Context.** Without a connection the panel's last known state is stale. Showing it as "current" is
 actively misleading for an alarm system.
 
-**Decision.** Every entity returns `available = self._controller.is_connected`. The connection
-signal re-writes state on every transition, so entities flip to *Unavailable* as soon as the socket
-drops and recover on reconnect.
+**Decision.** Every entity returns `available = self._controller.connected` - the connection state the
+**driver reported**, not the raw socket flag. The driver announces a disconnect only after a quick
+retry failed, so a link that drops and recovers within one reconnect never changes availability at all.
+The connection signal re-writes state on the transitions that do happen.
 
 **Consequences.**
 
 * ✔ Users and automations can distinguish "disarmed" from "unknown".
 * ✔ `Diagnostics` and the System Status sensor expose `connected` explicitly.
-* ✘ A brief network blip marks entities unavailable, which some automations treat as a state change.
+* ✔ A brief network blip no longer produces an `unavailable` / `available` pair, which some automations
+  treat as two state changes.
+* ✘ A genuine outage is reported only after the immediate retry failed, i.e. up to a few seconds later
+  than the socket actually dropped. For an alarm panel that trade is the right way round.
 ### 5.7 DEC-7 â€” One device for all zone entities
 
 **Context.** Releases 2.1.x gave every zone type its own device (*Crow Alarm Windows*, *Crow Alarm
@@ -255,6 +270,41 @@ them.
   (`binary_sensor.crow_alarm_windows_terrassentur` on *Crow Alarm Sensors*). That is cosmetic; the
   diagnostics `zone_registry` report shows the real device link.
 * âœ˜ The type is no longer visible in the device name, so the icon and the entity name carry it.
+
+### 5.8 DEC-8 - Calm the connection: report transitions, not events
+
+**Context.** In 2.2.0 and earlier an installation could go *Unavailable* and back to *connected* every
+few minutes, and every cycle rewrote the state of every entity. Three separate mechanisms fed it:
+
+1. the shipped keep-alive of **300 s** is longer than the IP module's own idle timeout, so the module
+   closed the socket first and the integration reconnected (and re-dumped the full status) on a timer
+   it did not control;
+2. a disconnect was announced immediately, and a failed reconnect attempt announced it *again*, even
+   though a reconnect a second later undid it;
+3. every line of the status dump was forwarded, so the repeated values in it rewrote every entity,
+   and connect additionally broadcast a redundant refresh 2 s later.
+
+**Decision.** Treat the connection as a *state* rather than a stream of events:
+
+* a link that had been up for `_STABLE_CONNECTION` (5 s) is retried once before a disconnect is
+  announced - a blip that heals produces no signal at all;
+* a link that flaps faster than that is a real failure and goes through the backoff, so a panel that
+  accepts and immediately drops cannot be hammered;
+* `_notify_connection()` forwards a state only when it differs from the last reported one;
+* a handler returns `None` when the value is unchanged, and `_dispatch_line()` then calls nothing;
+* the post-connect broadcast is removed - the `STATUS` dump on connect already carries the full state;
+* the keep-alive default becomes the panel driver's own **30 s**, is validated in the flow
+  (15-3600 s) and clamped in the driver, and existing entries are migrated (config entry version 2).
+
+**Consequences.**
+
+* ✔ A healthy panel with a stable network produces **no** state writes between real events.
+* ✔ A brief interruption is invisible to Home Assistant, so automations no longer fire twice.
+* ✘ An outage is reported a few seconds late (after the immediate retry failed), and an entry that
+  relied on a 300 s keep-alive is moved to 30 s by the migration.
+* ✘ The driver now carries state (`_reported_connected`) instead of being a pure pass-through, which
+  must be kept in mind when it is changed.
+
 ---
 
 ## 6. Runtime view
@@ -263,8 +313,11 @@ them.
 
 ```
 custom_components/crowipmodule/
-├── __init__.py            Entry setup/teardown, callback marshalling, hub device registration
-├── device.py              CrowRuntimeData, configuration_url(), build_device_info()   [NEW]
+├── __init__.py            Entry setup/teardown, callback marshalling, hub device registration,
+│                          config-entry migration (keep-alive normalisation)
+├── device.py              CrowRuntimeData, configuration_url(), build_device_info()
+├── entity.py              CrowConnectionEntity - connection-driven availability,
+│                          connection subscription, in-place entity_id opt-in        [NEW]
 ├── const.py               Domain, option keys, limits, defaults, signal topics, device ids
 ├── config_flow.py         Config flow (5 steps) and options flow (4 steps)
 ├── alarm_control_panel.py CrowAlarmPanel  - Arm Away / Home, Disarm, Trigger
@@ -322,9 +375,13 @@ Rules that follow from this:
 
 See [WORKFLOWS.md §4](WORKFLOWS.md#4-connection-lifecycle). Summary:
 
-`_connect()` → `_notify_connection(True)` → `request_status()` → `_listen_loop()` → on error
-`_notify_connection(False)` → back off (10 s, doubling, capped 60 s) → retry. `stop()` sets a flag,
-wakes the loop and closes the socket.
+`_connect()` → `_notify_connection(True)` → `request_status()` → `_listen_loop()`. When the socket
+is lost, a link that had been up for at least `_STABLE_CONNECTION` (5 s) is **retried once,
+immediately** - if that retry succeeds the outage is never announced. Only when it keeps failing is
+`_notify_connection(False)` sent, followed by the backoff (10 s, doubling, capped 60 s).
+`_notify_connection()` is idempotent: it forwards a state only when it differs from the last one it
+reported, so a repeated failure cannot re-write every entity. `stop()` sets a flag, wakes the loop
+and closes the socket.
 
 ### 6.5 Command path
 
@@ -335,9 +392,9 @@ supervisor reconnects rather than writing into a dead socket.
 
 ---
 
-## 7. Home Assistant conformance (2026.9.3)
+## 7. Home Assistant conformance (2026.10.1)
 
-Verified against the real 2026.9.3 sources; each row is asserted by
+Verified against the real 2026.10 sources; each row is asserted by
 `tests/verify_ha_2026_contract.py`.
 
 | Requirement | Implementation |
@@ -352,7 +409,9 @@ Verified against the real 2026.9.3 sources; each row is asserted by
 | `strings.json` mirrored in `translations/en.json` | asserted by `tests/verify_config_flow.py` |
 | `manifest.json` needs `domain`, `documentation`, `issue_tracker`, `codeowners`, `name`, `version` | `manifest.json` |
 | Brand images may ship locally (HA 2026.3+) | `brand/` |
-| Python 3.14.2+ (HA 2026.9 floor) | declared in `hacs.json` |
+| `Entity.async_entity_id_changed` opt-in for in-place `entity_id` changes (hook from 2026.10, default from 2026.11) | `entity.py::CrowConnectionEntity.async_entity_id_changed` calls `super()` defensively |
+| Config-entry migrations may normalise stored data (`async_migrate_entry`, version 1 → 2) | `__init__.py::async_migrate_entry` normalises `keepalive_interval` |
+| Python 3.14.2+ (HA 2026.10 floor) | declared in `hacs.json` |
 
 ---
 
@@ -360,7 +419,7 @@ Verified against the real 2026.9.3 sources; each row is asserted by
 
 | Attribute | Mechanism | Trade-off accepted |
 |---|---|---|
-| **Availability** | `available` from live connection state; reconnect with backoff | Blips mark entities unavailable |
+| **Availability** | `available` from the *reported* connection state; a blip is retried before it is reported; reconnect with backoff | A genuine outage is reported only after the first retry fails |
 | **Reliability** | Send failure drops the socket; unload and setup both wait for socket release | ~2 s pause on reload |
 | **Responsiveness** | Push-only; no polling; sub-second state propagation | UI updates depend on panel event rate |
 | **Diagnosability** | Structured debug logs (`TX:`/`RX:`), diagnostics dump, status sensor | Verbose at debug level |
@@ -375,7 +434,7 @@ Verified against the real 2026.9.3 sources; each row is asserted by
 ```
 <config>/custom_components/crowipmodule/
 ```
-Installed by HACS from GitHub release archive `2.2.0` (or the branch), or copied manually.
+Installed by HACS from GitHub release archive `2.2.0b1` (or the branch), or copied manually.
 Home Assistant imports the package at startup; the config entry lives in
 `.storage/core.config_entries`, not in YAML. Per-entry runtime objects are constructed at setup and
 released at unload.
@@ -388,10 +447,10 @@ released at unload.
 |---|---|---|---|
 | RISK-1 | Unique IDs for zones/sensors/outputs/buttons are global (`crow_zone_1`), not entry-scoped. Two IP Modules collide; HA logs *"ID already used by … - ignoring"* | Multi-panel users lose entities | **Open.** Needs a migration (new IDs orphan existing entities). The alarm panel is already scoped as `{entry_id}_crow_area_N`. |
 | RISK-2 | Setup blocks ~4 s (`asyncio.sleep(2.0)` twice) | Slow startup | **Open, accepted.** Workaround for the panel's single-socket behaviour; could be replaced by an active readiness probe. |
-| RISK-3 | `_is_connected` is read from several threads without a lock | Theoretically stale reads | **Low.** CPython attribute assignment is atomic; a lock is planned. |
+| RISK-3 | `_is_connected` is read from several threads without a lock | Theoretically stale reads | **Low.** CPython attribute assignment is atomic. `_reported_connected` - the value availability actually follows - *is* guarded by `_state_lock`, because two threads may report a transition at once. |
 | RISK-4 | No `async_step_import` exists and no `CONFIG_SCHEMA` is defined, so the integration cannot be configured from YAML | Nothing to migrate; no YAML path at all | **Accepted.** UI-based code is always created directly by the user. |
 | RISK-5 | Vendored driver will drift from upstream | Missing upstream fixes | **Accepted** by DEC-1; upstream is effectively dormant. |
-| RISK-6 | `hacs.json` pins `homeassistant: 2026.9.3`, so this release will not install on 2026.8 | Blocks older installs | **Deliberate** for the pre-release; lower to `2026.8` before promoting to stable. |
+| RISK-6 | `hacs.json` pins `homeassistant: 2026.10.1`, so this release will not install on 2026.9 or older | Blocks older installs | **Deliberate.** 2026.10.1 is the tested floor; the entity lifecycle hook this release adopts is 2026.10+. |
 | RISK-7 | No live-hardware CI | Regressions only surface with a real panel | Mitigated by the protocol self-test and stub harnesses. |
 
 ---
@@ -400,7 +459,7 @@ released at unload.
 
 | Document | Audience | Contents |
 |---|---|---|
-| [ADD](ADD.md) (this) | Maintainers, reviewers | Architecture, decisions, runtime view, risks |
+| [ACD](ACD.md) (this) | Maintainers, reviewers | Architecture, decisions, runtime view, risks |
 | [SDD](SDD.md) | Implementers | Modules, signatures, data models, protocol tables, entity contracts |
 | [WORKFLOWS](WORKFLOWS.md) | Everyone | Mermaid diagrams: setup, data flow, commands, lifecycle, verification |
 | [Wiki — HA 2026.09 dev branch](https://github.com/acdcnow/Crow-AAP-Alarm-System-for-Home-Assistant/wiki/HA-2026.09-Development-Branch) | Users | What changed and how to install it |

@@ -1,11 +1,11 @@
 # Workflows and Diagrams
 
 **Project:** Crow/AAP Alarm IP Module for Home Assistant
-**Branch:** `master` · **Version:** `2.2.0`
-**Last updated:** 2026-10-10
+**Branch:** `master` · **Version:** `2.2.0b1`
+**Last updated:** 2026-10-13
 
 Every diagram below is **Mermaid**, so it renders natively on GitHub, in the wiki, and in any
-Mermaid-capable viewer. The narrative companion is the [ADD](ADD.md); the module-level detail is the
+Mermaid-capable viewer. The narrative companion is the [ACD](ACD.md); the module-level detail is the
 [SDD](SDD.md).
 
 ---
@@ -72,7 +72,8 @@ sequenceDiagram
 
     Panel-->>HA: callback_connected True
     Note over Panel,HA: call_soon_threadsafe to SIGNAL_CONNECTION_UPDATE
-    Panel-->>HA: after 2 s, re-broadcast all state signals with None
+    Note over Panel,HA: no refresh broadcast - the STATUS dump on connect already
+    Note over Panel,HA: carries the full state, and only changed values dispatch
 ```
 
 ---
@@ -97,9 +98,10 @@ sequenceDiagram
     alt send fails
         C->>C: is_connected = False, close socket
         C-->>P: False
-        P->>C: supervisor reconnects with backoff
+        P->>C: supervisor reconnects (immediate retry if the link had been stable)
     else send ok
         S-->>P: panel replies with event lines
+        P->>P: handler drops the line if the value is unchanged
         P-->>E: callback, marshalled to the event loop
         E->>E: async_write_ha_state
     end
@@ -170,24 +172,37 @@ stateDiagram-v2
     Idle --> Connecting : start
     Connecting --> Connected : connect ok, backoff reset to 10 s
     Connecting --> Backoff : OSError or timeout
-    Connected --> Connected : keep-alive STATUS every keepalive_interval
-    Connected --> Disconnected : recv empty or socket error
-    Disconnected --> Backoff : notify connection False
+    Connected --> Connected : keep-alive STATUS every keepalive_interval (30 s default)
+    Connected --> Retry : recv empty or socket error
+    Retry --> Connected : link had been up >= 5 s, immediate retry succeeded
+    Retry --> Backoff : retry failed - outage is real, report it once
+    Retry --> Backoff : link flapped faster than 5 s (no immediate retry)
     Backoff --> Connecting : wait 10, 20, 40, 60 s cap
     Connected --> Idle : stop
     Backoff --> Idle : stop, wakeup event interrupts the wait
-    Disconnected --> Idle : stop
+    Retry --> Idle : stop
 ```
 
-Entity availability follows the `SIGNAL_CONNECTION_UPDATE` signal:
+`Retry` is the blip absorber: a link that had held for `_STABLE_CONNECTION` (5 s) is reconnected once,
+immediately. If that succeeds, nothing is reported at all - no `SIGNAL_CONNECTION_UPDATE`, no entity
+rewrite. A link that flaps faster than 5 s skips the retry, which keeps a panel that accepts and
+immediately drops from being hammered.
+
+Entity availability follows the `SIGNAL_CONNECTION_UPDATE` signal, which the driver emits only on a
+transition it actually reports:
 
 ```mermaid
 flowchart LR
     C1["connected = true"] --> AV["available = true<br/>entities show live state"]
     C2["connected = false"] --> UN["available = false<br/>entities show Unavailable"]
-    C1 -->|"socket drops"| C2
+    C1 -->|"socket drops"| B{"up >= 5 s?"}
+    B -->|"yes, retry ok"| C1
+    B -->|"no / retry failed"| C2
     C2 -->|"reconnect ok"| C1
 ```
+
+Availability reads `CrowIPAlarmPanel.connected` (the reported state), not the raw socket flag, so an
+entity that is written during the retry window still reports *available*.
 
 ---
 
@@ -250,15 +265,15 @@ sequenceDiagram
 ```mermaid
 flowchart LR
     A["compileall<br/>syntax across the integration"]
-    B["test_crow_protocol.py<br/>wire formats, RX parsing, loopback"]
-    C["tests/verify_ha_2026_contract.py<br/>platforms, DeviceInfo, alarm_state"]
-    D["tests/verify_config_flow.py<br/>flow steps, zone form, translations"]
+    B["test_crow_protocol.py<br/>wire formats, RX parsing, change-only dispatch,<br/>connection-state machine, loopback"]
+    C["tests/verify_ha_2026_contract.py<br/>platforms, DeviceInfo, availability,<br/>keep-alive normalisation, migration"]
+    D["tests/verify_config_flow.py<br/>flow steps, zone form, keep-alive range, translations"]
     E["HACS plus live panel<br/>manual smoke test"]
 
     A --> B --> C --> D --> E
 ```
 
-Layers A–D run without Home Assistant installed, which is required because Home Assistant 2026.9
+Layers A-D run without Home Assistant installed, which is required because Home Assistant 2026.10
 needs Python 3.14.2+.
 
 ---
@@ -341,7 +356,8 @@ flowchart LR
     class RD,D1,D2,P5,P6,P7 new
 ```
 
-Green nodes mark what the 2026.9 development branch added or changed.
+Green nodes mark what the 2026.9 development branch added or changed; `entity.py` and the
+connection handling were added in `2.2.0b1`.
 
 ---
 
@@ -349,7 +365,7 @@ Green nodes mark what the 2026.9 development branch added or changed.
 
 ```mermaid
 flowchart LR
-    Dev["Commit to<br/>master"] --> Ver{"All four<br/>checks pass"}
+    Dev["Commit to<br/>master"] --> Ver{"All four<br/>harnesses pass"}
     Ver -->|no| Dev
     Ver -->|yes| Bump["Bump manifest version<br/>and CHANGELOG"]
     Bump --> Tag["Tag<br/>no v prefix"]

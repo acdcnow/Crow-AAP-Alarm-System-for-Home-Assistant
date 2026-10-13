@@ -4,6 +4,14 @@ Threaded, blocking-socket transport (safe to run in a Home Assistant executor
 thread) that speaks the Crow/AAP line protocol. Command wire-formats and the
 RX line parser mirror the reference pycrowipmodule library, driven by the
 COMMANDS and RESPONSE_FORMATS tables in crow_defs.py.
+
+Two behaviours here exist purely to keep Home Assistant quiet:
+
+* a state line that reports a value the panel already has is not dispatched at
+  all, so the full status dump a ``STATUS`` probe provokes does not rewrite every
+  entity, and
+* the connection state is announced only when it really changes, and a blip that
+  heals within one reconnect is not announced at all.
 """
 import logging
 import re
@@ -19,6 +27,22 @@ _LOGGER = logging.getLogger(__name__)
 # connection timeout) so the loop wakes regularly to service keep-alive and to
 # notice a requested shutdown promptly.
 _RECV_TIMEOUT = 5.0
+
+# How long a link has to have held before a drop is treated as a network blip
+# that is worth one immediate retry. A link that flaps faster than this is a real
+# failure and goes through the backoff instead, which is what stops a panel that
+# accepts and immediately drops from being hammered.
+_STABLE_CONNECTION = 5.0
+
+# Whatever the config entry carries, the keep-alive is clamped into this range.
+# Below the lower bound the driver would probe on every read timeout, above the
+# upper bound it would not keep anything alive.
+_MIN_KEEPALIVE = 15.0
+_MAX_KEEPALIVE = 3600.0
+
+# The area state flags that exclude each other: an area message sets exactly one
+# of them and clears the rest, so all five take part in "did anything change?".
+_AREA_FLAGS = ("armed", "stay_armed", "disarmed", "exit_delay", "stay_exit_delay")
 
 
 class CrowIPModuleClient:
@@ -65,7 +89,7 @@ class CrowIPModuleClient:
             if panel_timeout:
                 self.timeout = float(panel_timeout)
             panel_keepalive = getattr(self.panel, "keepalive_interval", None)
-            if panel_keepalive:
+            if panel_keepalive is not None:
                 self.keepalive = float(panel_keepalive)
 
         if not self.host:
@@ -73,11 +97,18 @@ class CrowIPModuleClient:
         if not self.port:
             self.port = 5002
 
+        # A keep-alive outside this range cannot work, whatever the entry says.
+        self.keepalive = max(_MIN_KEEPALIVE, min(float(self.keepalive), _MAX_KEEPALIVE))
+
         self._socket = None
         self._send_lock = threading.Lock()
         self._state_lock = threading.Lock()
 
         self._is_connected = False
+        #: The connection state the caller was last told about. Notifications are
+        #: only emitted when this changes, so a drop and a quick reconnect cannot
+        #: flip every entity to "unavailable" and back for nothing.
+        self._reported_connected = False
         self._running = False
         self._thread = None
         self._wakeup = threading.Event()
@@ -85,6 +116,7 @@ class CrowIPModuleClient:
         self._base_reconnect_delay = 10
         self._reconnect_delay = self._base_reconnect_delay
         self._max_reconnect_delay = 60
+        self._stable_connection = _STABLE_CONNECTION
 
     # ------------------------------------------------------------------ #
     # Lifecycle
@@ -106,14 +138,23 @@ class CrowIPModuleClient:
         """Stop the worker thread and close the socket."""
         _LOGGER.debug("Stop requested for Crow IP client.")
         self._running = False
+        self._is_connected = False
         self._wakeup.set()
         self._close_socket()
 
     def _run_loop(self):
-        """Supervised connect/listen/reconnect loop with exponential backoff."""
+        """Supervised connect/listen/reconnect loop with exponential backoff.
+
+        A dropped link is not announced immediately. A connection that had been
+        up for a while is retried once, straight away; if that retry succeeds the
+        outage never happened as far as Home Assistant is concerned. Only when it
+        keeps failing is the disconnect reported and the backoff started.
+        """
         while self._running:
+            attempt_started = time.monotonic()
             connected = self._connect()
             if connected:
+                self._notify_connection(True)
                 self._reconnect_delay = self._base_reconnect_delay
                 # Give the module a moment, then pull a full status dump.
                 self.request_status()
@@ -121,6 +162,22 @@ class CrowIPModuleClient:
 
             if not self._running:
                 break
+
+            self._is_connected = False
+            self._close_socket()
+
+            uptime = time.monotonic() - attempt_started
+            if connected and uptime >= self._stable_connection:
+                # The link was healthy: absorb the blip by reconnecting at once.
+                _LOGGER.debug(
+                    "Connection to %s:%s dropped after %.1fs - retrying immediately.",
+                    self.host,
+                    self.port,
+                    uptime,
+                )
+                continue
+
+            self._notify_connection(False)
 
             delay = self._reconnect_delay
             _LOGGER.info("Reconnecting to Crow IP Module in %d seconds...", delay)
@@ -130,7 +187,11 @@ class CrowIPModuleClient:
         _LOGGER.debug("Crow IP client worker loop exited.")
 
     def _connect(self) -> bool:
-        """Open the TCP connection. Returns True on success."""
+        """Open the TCP connection. Returns True on success.
+
+        This does not touch the connection state the caller sees; the supervisor
+        decides whether a transition is announced (see ``_run_loop``).
+        """
         self._close_socket()
         try:
             _LOGGER.info("Connecting to Crow IP Module at %s:%s", self.host, self.port)
@@ -142,7 +203,6 @@ class CrowIPModuleClient:
             self._socket = sock
             self._is_connected = True
             _LOGGER.info("Connected to Crow IP Module at %s:%s.", self.host, self.port)
-            self._notify_connection(True)
             return True
         except (OSError, socket.timeout) as err:
             _LOGGER.warning("Failed to connect to Crow IP Module (%s:%s): %s", self.host, self.port, err)
@@ -187,7 +247,6 @@ class CrowIPModuleClient:
 
         self._is_connected = False
         self._close_socket()
-        self._notify_connection(False)
 
     def _close_socket(self):
         """Close the socket, ignoring teardown errors."""
@@ -205,12 +264,33 @@ class CrowIPModuleClient:
 
     @property
     def is_connected(self) -> bool:
+        """The raw socket state - True only while a socket is known to work."""
         return self._is_connected
+
+    @property
+    def connected(self) -> bool:
+        """The connection state most recently reported to the caller.
+
+        Unlike :attr:`is_connected` this does not dip while a dropped link is
+        being retried, which is what entity availability follows.
+        """
+        return self._reported_connected
 
     # ------------------------------------------------------------------ #
     # Connection-state notifications (drive HA availability / refresh)
     # ------------------------------------------------------------------ #
     def _notify_connection(self, connected: bool):
+        """Announce a connection transition - at most once per state.
+
+        Home Assistant is only told when the state really changes. A module that
+        drops and is back a second later therefore produces no ``unavailable`` /
+        ``available`` pair, and a repeated report is not forwarded twice.
+        """
+        connected = bool(connected)
+        with self._state_lock:
+            if connected == self._reported_connected:
+                return
+            self._reported_connected = connected
         cb = getattr(self.panel, "callback_connected", None) if self.panel else None
         if callable(cb):
             try:
@@ -304,7 +384,13 @@ class CrowIPModuleClient:
     # Receiving / parsing
     # ------------------------------------------------------------------ #
     def _dispatch_line(self, line: str):
-        """Parse one line, update panel state, and invoke the HA callback."""
+        """Parse one line, update panel state, and invoke the HA callback.
+
+        A line that reports a state the panel already has is dropped here. The
+        module repeats its entire status after every ``STATUS`` probe, and
+        forwarding those repeats would rewrite every affected entity - and every
+        recorder row - for nothing. A handler returns ``None`` for "no change".
+        """
         parsed = self._parse_line(line)
         if not parsed:
             return
@@ -317,6 +403,8 @@ class CrowIPModuleClient:
             except Exception as err:  # noqa: BLE001
                 _LOGGER.error("Error in handler %s: %s", parsed.get("handler"), err)
                 return
+        if result is None:
+            return
 
         callback = getattr(self.panel, parsed.get("callback", ""), None) if self.panel else None
         if callable(callback):
@@ -346,46 +434,72 @@ class CrowIPModuleClient:
         return result
 
     def handle_system_state_change(self, msg):
+        status = self.panel.system_state["status"]
+        attribute = msg["attribute"]
+        if status.get(attribute) == msg["status"]:
+            return None
         _LOGGER.debug("System state %s -> %s", msg["name"], msg["status"])
-        self.panel.system_state["status"][msg["attribute"]] = msg["status"]
-        return msg["attribute"]
+        status[attribute] = msg["status"]
+        return attribute
 
     def handle_output_state_change(self, msg):
-        _LOGGER.debug("Output state %s -> %s", msg["name"], msg["status"])
         output_number = msg["data"]
-        idx = int(output_number)
-        if idx in self.panel.output_state:
-            self.panel.output_state[idx]["status"][msg["attribute"]] = msg["status"]
+        state = self.panel.output_state.get(int(output_number))
+        if state is None:
+            return None
+        status = state["status"]
+        attribute = msg["attribute"]
+        if status.get(attribute) == msg["status"]:
+            return None
+        _LOGGER.debug("Output state %s -> %s", msg["name"], msg["status"])
+        status[attribute] = msg["status"]
         return output_number
 
     def handle_area_state_change(self, msg):
-        _LOGGER.debug("Area state %s -> %s", msg["name"], msg["status"])
         area_idx = int(msg["area"])
         area_label = "A" if area_idx == 1 else "B"
         status = self.panel.area_state[area_idx]["status"]
 
+        before = (
+            tuple(status.get(flag, False) for flag in _AREA_FLAGS),
+            status.get("alarm", False),
+            status.get("alarm_zone", ""),
+        )
+
         # A new area state message is exclusive: clear the others first.
-        status["armed"] = False
-        status["stay_armed"] = False
-        status["disarmed"] = False
-        status["exit_delay"] = False
-        status["stay_exit_delay"] = False
+        for flag in _AREA_FLAGS:
+            status[flag] = False
         status[msg["attribute"]] = msg["status"]
 
         if status["disarmed"]:
             status["alarm"] = False
             status["alarm_zone"] = ""
 
+        after = (
+            tuple(status.get(flag, False) for flag in _AREA_FLAGS),
+            status.get("alarm", False),
+            status.get("alarm_zone", ""),
+        )
+        if before == after:
+            return None
+
+        _LOGGER.debug("Area %s state %s -> %s", area_label, msg["name"], msg["status"])
         return area_label
 
     def handle_zone_state_change(self, msg):
-        _LOGGER.debug("Zone %s state %s -> %s", msg["data"], msg["name"], msg["status"])
         zone_number = msg["data"]
-        idx = int(zone_number)
-        if idx in self.panel.zone_state:
-            self.panel.zone_state[idx]["status"][msg["attribute"]] = msg["status"]
+        state = self.panel.zone_state.get(int(zone_number))
+        if state is None:
+            return None
+        status = state["status"]
+        attribute = msg["attribute"]
+        if status.get(attribute) == msg["status"]:
+            return None
 
-        if msg["attribute"] == "alarm":
+        _LOGGER.debug("Zone %s state %s -> %s", zone_number, msg["name"], msg["status"])
+        status[attribute] = msg["status"]
+
+        if attribute == "alarm":
             for area_idx in self.panel.area_state:
                 area_status = self.panel.area_state[area_idx]["status"]
                 if msg["status"]:

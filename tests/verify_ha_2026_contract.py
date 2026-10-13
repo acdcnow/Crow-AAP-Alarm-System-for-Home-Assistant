@@ -1,11 +1,12 @@
-"""Verify the Crow IP Module integration against the HA 2026.9.3 entity contract.
+"""Verify the Crow IP Module integration against the HA 2026.10 entity contract.
 
-Home Assistant 2026.9 needs Python >= 3.14.2, so it cannot be imported here.
+Home Assistant 2026.10 needs Python >= 3.14.2, so it cannot be imported here.
 Instead this harness injects faithful stubs for the Home Assistant modules the
-integration imports, using the *real* 2026.9.3 definitions for the parts that
+integration imports, using the *real* 2026.10 definitions for the parts that
 matter (``DeviceInfo`` is a total=False TypedDict whose only required key is
 ``via_device_id``; ``BinarySensorDeviceClass`` is a StrEnum; ``EntityCategory``
-lives in ``homeassistant.const``).
+lives in ``homeassistant.const``; ``Entity.async_entity_id_changed`` is the
+lifecycle hook an integration opts in to in-place ``entity_id`` changes with).
 
 Run:  python tests/verify_ha_2026_contract.py
 """
@@ -327,6 +328,12 @@ class Entity:
         self._on_remove = getattr(self, "_on_remove", [])
         self._on_remove.append(func)
 
+    # Home Assistant 2026.11 adds this hook; the integration opts in to in-place
+    # entity_id changes by overriding it and calling super().
+    def async_entity_id_changed(self, old_entity_id: str) -> None:
+        self._entity_id_changes = getattr(self, "_entity_id_changes", [])
+        self._entity_id_changes.append(old_entity_id)
+
     # HA exposes these as cached properties over the _attr_ backing values.
     @property
     def should_poll(self) -> bool:
@@ -465,6 +472,7 @@ from custom_components.crowipmodule import (  # noqa: E402
     binary_sensor,
     button as crow_button,
     diagnostics,
+    entity as crow_entity,
     sensor as crow_sensor,
     switch as crow_switch,
 )
@@ -496,6 +504,13 @@ class FakeConfigEntries:
     async def async_reload(self, entry_id):
         return True
 
+    def async_update_entry(self, entry, *, data=None, version=None, **kwargs):
+        if data is not None:
+            entry.data = dict(data)
+        if version is not None:
+            entry.version = version
+        return entry
+
 
 class FakeHass:
     def __init__(self) -> None:
@@ -509,11 +524,12 @@ class FakeHass:
 
 
 class FakeEntry:
-    def __init__(self, data, options) -> None:
+    def __init__(self, data, options, version: int = 1) -> None:
         self.data = data
         self.options = options
         self.entry_id = "entry-1"
         self.title = "192.168.1.50"
+        self.version = version
         self.runtime_data = None
 
     def async_on_unload(self, func):
@@ -935,6 +951,128 @@ async def main() -> None:
     check(
         "path-only rejected",
         crow_device.configuration_url("/dev/null") is None,
+    )
+
+    # ---------------------------------------------------------------- #
+    print("\n== Connection-driven availability ==")
+    # Availability must follow the *reported* connection state, so a link the
+    # driver is retrying does not make every entity flap to Unavailable.
+    class FakeClient:
+        def __init__(self, reported, socket_up):
+            self.connected = reported
+            self.is_connected = socket_up
+
+    probe_controller = crow.CrowIPAlarmPanel("192.168.1.50", 5002, "0000", 30, None, 5)
+    probe = binary_sensor.CrowZoneSensor(
+        types.SimpleNamespace(controller=probe_controller, device_id=None, firmware="f/w"),
+        "192.168.1.50",
+        1,
+        "Probe",
+        "window",
+    )
+    probe_controller._client = FakeClient(reported=False, socket_up=True)
+    check("a dropped link is unavailable", probe.available is False)
+    probe_controller._client = FakeClient(reported=True, socket_up=False)
+    check("a link that is being retried stays available", probe.available is True)
+    probe_controller._client = None
+    check("no client at all is unavailable", probe.available is False)
+
+    writes = {"count": 0}
+    probe.async_write_ha_state = lambda: writes.__setitem__("count", writes["count"] + 1)
+    probe._connection_callback(True)
+    check("the connection callback re-writes the state", writes["count"] == 1, str(writes))
+
+    print("\n== In-place entity_id changes (HA 2026.10+) ==")
+    bases = (
+        alarm_control_panel.CrowAlarmPanel,
+        binary_sensor.CrowBaseEntity,
+        crow_button.CrowBaseButton,
+        crow_sensor.CrowBaseTextSensor,
+        crow_switch.CrowBaseSwitch,
+    )
+    check(
+        "every platform base uses the shared connection mixin",
+        all(issubclass(base, crow_entity.CrowConnectionEntity) for base in bases),
+        str([b.__name__ for b in bases if not issubclass(b, crow_entity.CrowConnectionEntity)]),
+    )
+    check(
+        "every platform base opts in to in-place entity_id changes",
+        all("async_entity_id_changed" in dir(base) for base in bases),
+        str([b.__name__ for b in bases if "async_entity_id_changed" not in dir(b)]),
+    )
+    probe.async_entity_id_changed("binary_sensor.crow_alarm_sensors_old")
+    check(
+        "async_entity_id_changed delegates to the base class",
+        getattr(probe, "_entity_id_changes", None) == ["binary_sensor.crow_alarm_sensors_old"],
+        str(getattr(probe, "_entity_id_changes", None)),
+    )
+
+    # ---------------------------------------------------------------- #
+    print("\n== Keep-alive normalisation ==")
+    check(
+        "the default keep-alive matches the panel driver's own 30 s",
+        crow_const.DEFAULT_KEEPALIVE == 30,
+        str(crow_const.DEFAULT_KEEPALIVE),
+    )
+    check(
+        "the legacy 300 s default is migrated to the current default",
+        crow_const.normalise_keepalive(crow_const.LEGACY_DEFAULT_KEEPALIVE) == crow_const.DEFAULT_KEEPALIVE,
+    )
+    check("a value the user chose is kept", crow_const.normalise_keepalive(120) == 120)
+    check(
+        "a value below the minimum is raised",
+        crow_const.normalise_keepalive(0) == crow_const.MIN_KEEPALIVE,
+    )
+    check(
+        "a value above the maximum is lowered",
+        crow_const.normalise_keepalive(99999) == crow_const.MAX_KEEPALIVE,
+    )
+    check(
+        "a missing value falls back to the default",
+        crow_const.normalise_keepalive(None) == crow_const.DEFAULT_KEEPALIVE,
+    )
+    check(
+        "an unparsable value falls back to the default",
+        crow_const.normalise_keepalive("soon") == crow_const.DEFAULT_KEEPALIVE,
+    )
+
+    # ---------------------------------------------------------------- #
+    print("\n== Config entry migration ==")
+    legacy = FakeEntry(dict(DATA), dict(OPTIONS), version=1)
+    check("the legacy entry starts on version 1", legacy.version == 1)
+    assert await crow.async_migrate_entry(hass, legacy) is True
+    check(
+        "migration moves the entry to the current version",
+        legacy.version == crow_const.CONFIG_ENTRY_VERSION,
+        str(legacy.version),
+    )
+    check(
+        "migration rewrites the legacy keep-alive",
+        legacy.data["keepalive_interval"] == crow_const.DEFAULT_KEEPALIVE,
+        str(legacy.data.get("keepalive_interval")),
+    )
+    check(
+        "migration leaves the rest of the entry alone",
+        legacy.data["host"] == DATA["host"] and legacy.options == OPTIONS,
+    )
+
+    custom = FakeEntry({**DATA, "keepalive_interval": 45}, dict(OPTIONS), version=1)
+    assert await crow.async_migrate_entry(hass, custom) is True
+    check(
+        "migration keeps a keep-alive the user picked",
+        custom.data["keepalive_interval"] == 45,
+        str(custom.data.get("keepalive_interval")),
+    )
+
+    current = FakeEntry(dict(DATA), dict(OPTIONS), version=crow_const.CONFIG_ENTRY_VERSION)
+    before = dict(current.data)
+    assert await crow.async_migrate_entry(hass, current) is True
+    check("an entry already on the current version is untouched", current.data == before)
+
+    future = FakeEntry(dict(DATA), dict(OPTIONS), version=crow_const.CONFIG_ENTRY_VERSION + 1)
+    check(
+        "a newer entry is refused instead of downgraded",
+        await crow.async_migrate_entry(hass, future) is False,
     )
 
     # ---------------------------------------------------------------- #

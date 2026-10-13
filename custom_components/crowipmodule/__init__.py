@@ -21,6 +21,7 @@ from .const import (
     CONF_FW_DATE,
     CONF_FW_VERSION,
     CONF_KEEP_ALIVE,
+    CONFIG_ENTRY_VERSION,
     DEFAULT_FW_DATE,
     DEFAULT_FW_VERSION,
     DEFAULT_KEEPALIVE,
@@ -33,6 +34,7 @@ from .const import (
     SIGNAL_OUTPUT_UPDATE,
     SIGNAL_SYSTEM_UPDATE,
     SIGNAL_ZONE_UPDATE,
+    normalise_keepalive,
 )
 from .device import CrowRuntimeData, build_device_info
 from .pycrowipmodule import CrowIPAlarmPanel
@@ -54,13 +56,54 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     # be picked up by the config flow's import step.
     return True
 
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Migrate a config entry to :data:`CONFIG_ENTRY_VERSION`.
+
+    Version 2 normalises ``keepalive_interval``. Entries created before 2.2.0
+    still carry the old 300 s default, which is long enough for the IP module to
+    close the idle socket by itself - the cause of the "unavailable, then
+    connected again" flapping and of most of the state churn. A value the user
+    picked themselves is only clamped into the supported range.
+    """
+    if entry.version > CONFIG_ENTRY_VERSION:
+        _LOGGER.error(
+            "Cannot downgrade the Crow IP Module entry %s from version %s to %s",
+            entry.entry_id,
+            entry.version,
+            CONFIG_ENTRY_VERSION,
+        )
+        return False
+
+    if entry.version < CONFIG_ENTRY_VERSION:
+        previous = entry.data.get(CONF_KEEP_ALIVE)
+        new_data = dict(entry.data)
+        new_data[CONF_KEEP_ALIVE] = normalise_keepalive(
+            previous if previous is not None else DEFAULT_KEEPALIVE
+        )
+        hass.config_entries.async_update_entry(
+            entry, data=new_data, version=CONFIG_ENTRY_VERSION
+        )
+        if new_data[CONF_KEEP_ALIVE] != previous:
+            _LOGGER.info(
+                "Crow IP Module keep-alive changed from %s to %s seconds so the "
+                "module does not close the idle connection by itself",
+                previous,
+                new_data[CONF_KEEP_ALIVE],
+            )
+    return True
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Crow IP Module from a config entry."""
     _LOGGER.info("Starting Crow IP Module setup for entry: %s", entry.title)
     
     host = entry.data[CONF_HOST]
     port = entry.data[CONF_PORT]
-    keep_alive = entry.data.get(CONF_KEEP_ALIVE, DEFAULT_KEEPALIVE)
+    # Normalise here as well as in the migration: an entry that has just been
+    # migrated reloads immediately, so setup runs against the already corrected
+    # value, and a value that slipped in some other way cannot flood the panel.
+    keep_alive = normalise_keepalive(
+        entry.data.get(CONF_KEEP_ALIVE, DEFAULT_KEEPALIVE)
+    )
     connection_timeout = entry.data.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)
 
     try:
@@ -97,28 +140,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _thread_safe_send(SIGNAL_OUTPUT_UPDATE, data)
 
     def connected_callback(data):
-        """Called by the client on connect (True) and disconnect (False)."""
+        """Called by the client on connect (True) and disconnect (False).
+
+        The client only calls this on a real transition, so a blip that heals
+        within one reconnect is never reported. There is deliberately no "refresh
+        everything" broadcast here: the driver asks for a full status on connect
+        and only forwards the values that actually changed, so re-broadcasting
+        would rewrite every entity a second time for nothing.
+        """
         connected = bool(data)
-        _thread_safe_send(SIGNAL_CONNECTION_UPDATE, connected)
         if not connected:
             _LOGGER.warning("Connection lost to Crow IP Module.")
+            _thread_safe_send(SIGNAL_CONNECTION_UPDATE, False)
             return
 
         _LOGGER.info("Successfully connected to Crow IP Module at %s", host)
+        _thread_safe_send(SIGNAL_CONNECTION_UPDATE, True)
 
-        async def delayed_refresh():
-            await asyncio.sleep(2.0)
-            async_dispatcher_send(hass, SIGNAL_SYSTEM_UPDATE, None)
-            async_dispatcher_send(hass, SIGNAL_AREA_UPDATE, None)
-            async_dispatcher_send(hass, SIGNAL_ZONE_UPDATE, None)
-            async_dispatcher_send(hass, SIGNAL_OUTPUT_UPDATE, None)
-        # create_task is NOT thread-safe — use run_coroutine_threadsafe to
-        # schedule the coroutine onto HA's event loop from the panel's background thread.
-        asyncio.run_coroutine_threadsafe(delayed_refresh(), hass.loop)
-
-    def connection_fail_callback(data):
-        _LOGGER.warning("Connection lost/failed to Crow IP Module. Reconnecting...")
-        _thread_safe_send(SIGNAL_CONNECTION_UPDATE, False)
+    def connection_fail_callback(_data):
+        """A connect attempt failed; the driver keeps retrying on its own."""
+        _LOGGER.debug("Connect attempt to %s failed; retrying with backoff.", host)
 
     controller.callback_zone_state_change = zones_updated_callback
     controller.callback_area_state_change = areas_updated_callback

@@ -2,6 +2,9 @@
 
 DOMAIN = "crowipmodule"
 
+# Config entry schema version. 2 added the keep-alive normalisation below.
+CONFIG_ENTRY_VERSION = 2
+
 # Configuration Keys
 CONF_KEEP_ALIVE = "keepalive_interval"
 CONF_AREAS = "areas"
@@ -51,7 +54,42 @@ DEFAULT_NUM_OUTPUTS = 2
 # Defaults
 DEFAULT_PORT = 5002
 DEFAULT_TIMEOUT = 10
-DEFAULT_KEEPALIVE = 300
+
+# Seconds between the ``STATUS`` probes that double as the keep-alive.
+#
+# The panel's own driver uses 30 s; this integration shipped 300 s, which is long
+# enough for the module to close the idle socket on its own. The integration then
+# reconnected, asked for the full status again and rewrote every entity - the
+# "unavailable / connected again" flapping, and the bulk of the recorder rows.
+# One short ``STATUS`` line every 30 s is far cheaper than that cycle, especially
+# because a probe that reports no change no longer reaches any entity at all.
+DEFAULT_KEEPALIVE = 30
+MIN_KEEPALIVE = 15
+MAX_KEEPALIVE = 3600
+#: The value every entry created before 2.2.0 carried. It is migrated onto the
+#: current default because it is what made healthy installations flap.
+LEGACY_DEFAULT_KEEPALIVE = 300
+
+
+def normalise_keepalive(value: object) -> int:
+    """Return a keep-alive interval inside the supported range.
+
+    A value outside ``[MIN_KEEPALIVE, MAX_KEEPALIVE]`` cannot work: ``0`` or a
+    negative number makes the driver send a ``STATUS`` probe on every 5 s read
+    timeout (a flood), and an absurdly large one defeats the keep-alive entirely.
+    A missing or unparsable value falls back to the default.
+
+    The legacy default of 300 s is mapped onto the current default rather than
+    clamped, because that is the value that *caused* the flapping this release
+    fixes; a value the user picked themselves is only clamped into range.
+    """
+    try:
+        interval = int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return DEFAULT_KEEPALIVE
+    if interval == LEGACY_DEFAULT_KEEPALIVE:
+        return DEFAULT_KEEPALIVE
+    return max(MIN_KEEPALIVE, min(interval, MAX_KEEPALIVE))
 
 # Device registry
 # NOTE: the identifier strings are part of the stored registry and must not be

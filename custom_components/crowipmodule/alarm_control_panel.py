@@ -31,6 +31,7 @@ from .const import (
     SIGNAL_KEYPAD_UPDATE,
 )
 from .device import build_device_info
+from .entity import CrowConnectionEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -80,7 +81,7 @@ async def async_setup_entry(
 
     async_add_entities(devices)
 
-class CrowAlarmPanel(AlarmControlPanelEntity):
+class CrowAlarmPanel(CrowConnectionEntity, AlarmControlPanelEntity):
     _attr_has_entity_name = True
     _attr_name = None
     _attr_should_poll = False
@@ -124,14 +125,6 @@ class CrowAlarmPanel(AlarmControlPanelEntity):
         self.async_on_remove(
             async_dispatcher_connect(self.hass, SIGNAL_CONNECTION_UPDATE, self._connection_callback)
         )
-
-    @callback
-    def _connection_callback(self, _connected) -> None:
-        self.async_write_ha_state()
-
-    @property
-    def available(self) -> bool:
-        return self._controller.is_connected
 
     @callback
     def _update_callback(self, area) -> None:

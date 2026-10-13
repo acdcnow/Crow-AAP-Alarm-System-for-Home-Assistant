@@ -89,7 +89,8 @@ async def async_get_config_entry_diagnostics(
         data["zone_registry"] = f"unavailable: {err}"
 
     if controller is not None:
-        data["connected"] = controller.is_connected
+        data["connected"] = controller.connected
+        data["socket_connected"] = controller.is_connected
         data["state"] = {
             "system": controller.system_state,
             "areas": controller.area_state,

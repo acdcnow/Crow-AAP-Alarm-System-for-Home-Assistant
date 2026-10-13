@@ -1,5 +1,63 @@
 # Changelog
 
+## [2.2.0b1] - 2026-10-13
+
+Fixes the connection handling. An install could go *Unavailable* and back to *connected* every few
+minutes, and every one of those cycles rewrote the state of every entity - which is where the bulk of
+the recorder rows came from. The cause was how the keep-alive and the reconnect were wired, and how
+much of the panel's chatter was forwarded to Home Assistant.
+
+### 🔧 Fixed
+
+* **A short network blip is no longer reported.** A link that had been up for at least 5 s is retried
+  once, immediately; only if that retry fails is the disconnect announced. A drop that heals within
+  the retry produces no `unavailable` / `available` pair and no entity rewrite at all. A link that
+  flaps faster than 5 s is a real failure and goes through the backoff, so a panel that accepts and
+  immediately drops is not hammered.
+* **A repeated status is no longer forwarded.** The module repeats its entire status after every
+  `STATUS` probe. A line that reports a value the panel already has is now dropped in the driver
+  instead of being dispatched, so a probe that changes nothing writes nothing - previously it rewrote
+  every system, zone, area and output entity.
+* **The keep-alive default is 30 s instead of 300 s.** The panel's own driver uses 30 s; 300 s is long
+  enough for the IP module to close the idle socket by itself, which is what started the flap cycle.
+  One short `STATUS` line every 30 s is far cheaper than a reconnect that re-dumps the full status.
+* **The redundant post-connect refresh is gone.** `request_status()` already asks for a full dump whose
+  lines update the entities; the additional broadcast 2 s after every connect rewrote every entity a
+  second time for nothing.
+* **The connection state is only signalled when it changes.** A failed reconnect attempt used to send
+  the *disconnected* signal again on top of the one from the lost socket, re-writing every entity each
+  time.
+* `CrowSystemSensor` no longer sets a stray `me` attribute on the shared runtime data object.
+
+### 🛠 Changed
+
+* **Minimum Home Assistant is now 2026.10.1.** `hacs.json`, the README and `info.md` were updated;
+  users still on 2026.9 should stay on `2.2.0`.
+* **Entity availability follows the *reported* connection state.** `CrowIPAlarmPanel.connected` is now
+  the value entities read, instead of the raw socket flag that dips while a link is retried.
+  Diagnostics reports both (`connected` and `socket_connected`).
+* **Adopted the Home Assistant 2026.10 entity lifecycle hook.** The entities implement
+  `async_entity_id_changed` (calling `super()`, which is a no-op where the base hook does not exist
+  yet), which opts the integration in to the in-place `entity_id` change that becomes the default in
+  2026.11 - instead of every entity being removed and added again when a user renames one.
+* The keep-alive is validated in the config and options flow (`15`-`3600` s) and clamped in the driver
+  as a second line of defence, so a value that cannot work (0 would probe on every 5 s read timeout)
+  can neither be entered nor stored.
+* The shared connection handling of the six entity classes moved into one mixin
+  (`crowipmodule/entity.py`) instead of six near-identical copies.
+* `docs/ADD.md` was renamed to `docs/ACD.md` and retitled **Architecture Concept Document (ACD)**;
+  the README, the SDD and the workflow document link the new name.
+
+### ℹ️ What to expect on update
+
+* The config entry is migrated to schema version 2. The log shows one line if the keep-alive changed,
+  e.g. `Crow IP Module keep-alive changed from 300 to 30 seconds ...`.
+* **No configuration change is needed** - no re-adding of zones or the integration.
+* The integration no longer needs a restart to recover from a brief network interruption: it recovers
+  silently and only reports an outage that outlives its retry.
+* ⚠️ `2.2.0b1` sorts **below** `2.2.0`, so HACS will not offer it as an update even with *Show beta
+  versions* enabled.
+
 ## [2.2.0] - 2026-10-10
 
 The promotion of `2.2.0-beta.1` to stable - same behaviour, no configuration change. The beta was
@@ -268,7 +326,7 @@ behaviour configurable - `2.1.0-beta.1` could not arm such a panel at all.
 
 ### 📝 Documentation
 
-* **Added `docs/ADD.md`** - Architectural Design Document: context, the six key architectural
+* **Added `docs/ACD.md`** - Architecture Concept Document (then `docs/ADD.md`): context, the six key architectural
   decisions, runtime and threading view, Home Assistant 2026.9 conformance table, quality
   attributes and a risk register.
 * **Added `docs/SDD.md`** - Software Design Document: module inventory, configuration data model,

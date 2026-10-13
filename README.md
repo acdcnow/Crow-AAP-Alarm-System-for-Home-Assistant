@@ -8,17 +8,34 @@ This is a custom integration for **Home Assistant** to control **Crow Runner**, 
 
 Unlike previous solutions, this integration uses a **direct local TCP implementation** (the driver is vendored inside the integration, so no external Python dependency is installed) to ensure robust connection handling, specific command sequences (`Code` -> `Command` -> `Enter`), and accurate status parsing.
 
-> **Current release: `2.2.0`.** Targets Home Assistant 2026.9.3.
-> Users on Home Assistant 2026.8 or older should stay on `2.0.0`.
-> `2.2.0` reworks the zone devices: **all zone entities now live on one device**
-> (*Crow Alarm Sensors*) and the retired per-type devices are cleaned up automatically.
-> Existing entity ids are left untouched, so no dashboard or automation needs editing.
-> The `2.1.0-beta.*` and `2.2.0-beta.1` pre-releases are superseded - update to `2.2.0`
-> (HACS shows it without enabling *Show beta versions*).
+> **Current release: `2.2.0b1` (beta).** Targets Home Assistant 2026.10.1.
+> Users still on Home Assistant 2026.9 should stay on `2.2.0`.
+>
+> `2.2.0b1` fixes the connection handling that made the integration flap between
+> *Unavailable* and *connected* and wrote far more state than necessary:
+>
+> * a link that drops and recovers within one reconnect is **never reported** - no
+>   `unavailable` / `available` pair, no entity rewrite;
+> * a `STATUS` dump that reports a value the panel already has is **not forwarded**
+>   any more, so a probe that changes nothing writes nothing;
+> * the keep-alive default is the panel driver's own **30 s** instead of 300 s
+>   (entries created earlier are migrated; a value you chose yourself is kept);
+> * a keep-alive outside a usable range can no longer be configured or stored.
+>
+> It also moves the minimum Home Assistant to **2026.10.1** and adopts the entity
+> lifecycle hook introduced in 2026.10. Everything from `2.2.0` is included - the
+> single *Crow Alarm Sensors* device, the retired per-type devices, the untouched
+> entity ids and the arm-sequence option.
+>
+> ⚠️ `2.2.0b1` sorts **below** `2.2.0`, so HACS will not offer it as an update even
+> with *Show beta versions* enabled - install it manually, or publish it under a
+> higher version number.
+>
+> The `2.1.0-beta.*` and `2.2.0-beta.1` pre-releases are superseded.
 
 ## ✅ Requirements
 
-* **Home Assistant 2026.9.3 or newer** (Home Assistant 2026.9 requires Python 3.14.2+).
+* **Home Assistant 2026.10.1 or newer** (Home Assistant 2026.9 requires Python 3.14.2+).
 * A Crow Runner 8/16 or AAP ESL-2 board with the IP Module / APP POD.
 * The panel must speak the ASCII line protocol on TCP port `5002` (the default).
 
@@ -28,7 +45,7 @@ Unlike previous solutions, this integration uses a **direct local TCP implementa
 
 | Document | What it covers |
 |---|---|
-| [Architectural Design Document](docs/ADD.md) | Context, architectural decisions, runtime view, quality attributes, risks |
+| [Architecture Concept Document](docs/ACD.md) | Context, architectural decisions, runtime view, quality attributes, risks |
 | [Software Design Document](docs/SDD.md) | Modules, signatures, data models, protocol tables, per-entity contracts |
 | [Workflows and Diagrams](docs/WORKFLOWS.md) | Mermaid diagrams: setup, data flow, commands, connection lifecycle, release |
 | [Dashboard](dashboards/README.md) | Ready-to-use Lovelace dashboard (standard + expert view) with an offline preview |
@@ -51,6 +68,8 @@ Unlike previous solutions, this integration uses a **direct local TCP implementa
   Set a *default code* on the entity if you want to arm and disarm without the prompt.
 * **Correct Command Sequence:** Automatically handles the required protocol sequence (e.g., `Code` + `ARM` + `Enter`).
 * Entities become **unavailable** when the TCP connection drops, instead of silently showing stale state.
+  A brief network blip is absorbed first: the driver retries the link once before it reports
+  anything, so a short interruption does not flip every entity twice.
 
 
 * **Binary Sensors (Zones):**

@@ -13,11 +13,14 @@ from homeassistant.helpers import selector
 from .const import (
     ARM_SEQUENCES,
     CONF_ARM_SEQUENCE,
+    CONFIG_ENTRY_VERSION,
     DEFAULT_ARM_SEQUENCE,
     DOMAIN,
     DEFAULT_PORT,
     DEFAULT_TIMEOUT,
     DEFAULT_KEEPALIVE,
+    MIN_KEEPALIVE,
+    MAX_KEEPALIVE,
     CONF_KEEP_ALIVE,
     CONF_AREAS,
     CONF_ZONES,
@@ -117,6 +120,17 @@ def existing_zones(entry) -> dict:
     return {str(k): dict(v) for k, v in (entry.options.get(CONF_ZONES) or {}).items()}
 
 
+def _keepalive_validator() -> vol.All:
+    """Keep-alive interval in seconds, bounded to what the driver can use.
+
+    A value below the minimum makes the driver send a ``STATUS`` probe on every
+    5 s read timeout (a flood); a value above the maximum stops it from keeping
+    the socket alive at all. Both make the integration flap instead of fix it, so
+    the flow refuses them rather than storing a value that cannot work.
+    """
+    return vol.All(vol.Coerce(int), vol.Range(min=MIN_KEEPALIVE, max=MAX_KEEPALIVE))
+
+
 def _arm_sequence_selector() -> selector.SelectSelector:
     """Dropdown for how the panel is armed (see const.CONF_ARM_SEQUENCE).
 
@@ -143,7 +157,7 @@ def _test_connection(host: str, port: int, timeout: float) -> bool:
 class CrowConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Crow IP Module."""
 
-    VERSION = 1
+    VERSION = CONFIG_ENTRY_VERSION
 
     def __init__(self):
         self._data = {}
@@ -183,7 +197,7 @@ class CrowConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         schema = vol.Schema({
             vol.Required(CONF_HOST): str,
             vol.Optional(CONF_PORT, default=DEFAULT_PORT): int,
-            vol.Optional(CONF_KEEP_ALIVE, default=DEFAULT_KEEPALIVE): int,
+            vol.Optional(CONF_KEEP_ALIVE, default=DEFAULT_KEEPALIVE): _keepalive_validator(),
             vol.Optional(CONF_TIMEOUT, default=DEFAULT_TIMEOUT): int,
             
             vol.Required(CONF_FW_VERSION, default=DEFAULT_FW_VERSION): vol.In(fw_options),
@@ -306,7 +320,7 @@ class CrowOptionsFlowHandler(config_entries.OptionsFlow):
         schema = vol.Schema({
             vol.Required(CONF_HOST, default=data.get(CONF_HOST)): str,
             vol.Optional(CONF_PORT, default=data.get(CONF_PORT, DEFAULT_PORT)): int,
-            vol.Optional(CONF_KEEP_ALIVE, default=data.get(CONF_KEEP_ALIVE, DEFAULT_KEEPALIVE)): int,
+            vol.Optional(CONF_KEEP_ALIVE, default=data.get(CONF_KEEP_ALIVE, DEFAULT_KEEPALIVE)): _keepalive_validator(),
             vol.Optional(CONF_TIMEOUT, default=data.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)): int,
             
             vol.Required(CONF_FW_VERSION, default=current_fw): vol.In(fw_options),

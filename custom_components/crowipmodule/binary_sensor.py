@@ -34,6 +34,7 @@ from .const import (
     zone_device,
 )
 from .device import CrowRuntimeData, build_device_info
+from .entity import CrowConnectionEntity
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -249,7 +250,7 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class CrowBaseEntity(BinarySensorEntity):
+class CrowBaseEntity(CrowConnectionEntity, BinarySensorEntity):
     _attr_has_entity_name = True
     _attr_should_poll = False
 
@@ -257,14 +258,6 @@ class CrowBaseEntity(BinarySensorEntity):
         self._runtime_data = runtime_data
         self._controller = runtime_data.controller
         self._host = host
-
-    @property
-    def available(self) -> bool:
-        return self._controller.is_connected
-
-    @callback
-    def _connection_callback(self, _connected):
-        self.async_write_ha_state()
 
     @property
     def device_info(self) -> DeviceInfo:

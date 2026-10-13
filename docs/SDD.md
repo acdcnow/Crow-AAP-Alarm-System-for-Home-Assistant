@@ -2,11 +2,11 @@
 
 **Project:** Crow/AAP Alarm IP Module for Home Assistant
 **Integration domain:** `crowipmodule`
-**Branch:** `master` · **Version:** `2.2.0` · **Status:** released
-**Last updated:** 2026-10-10
+**Branch:** `master` · **Version:** `2.2.0b1` · **Status:** beta
+**Last updated:** 2026-10-13
 
 This document specifies **how** the integration is built: modules, signatures, data shapes,
-protocol tables and per-entity contracts. Read the [ADD](ADD.md) first for the architectural
+protocol tables and per-entity contracts. Read the [ACD](ACD.md) first for the architectural
 rationale; the diagrams live in [WORKFLOWS.md](WORKFLOWS.md).
 
 ---
@@ -15,8 +15,9 @@ rationale; the diagrams live in [WORKFLOWS.md](WORKFLOWS.md).
 
 | Module | Responsibility | Depends on |
 |---|---|---|
-| `__init__.py` | Entry setup/teardown, callback marshalling, hub device registration | `const`, `device`, `pycrowipmodule`, `homeassistant.*` |
+| `__init__.py` | Entry setup/teardown, callback marshalling, hub device registration, config-entry migration | `const`, `device`, `pycrowipmodule`, `homeassistant.*` |
 | `device.py` | `CrowRuntimeData`, `configuration_url()`, `build_device_info()` | `const`, `homeassistant.helpers.device_registry` |
+| `entity.py` | `CrowConnectionEntity` - availability, connection subscription, `async_entity_id_changed` opt-in | `homeassistant.core` |
 | `const.py` | Domain, option keys, limits, defaults, signal topics, device identifiers | — |
 | `config_flow.py` | Config flow + options flow | `const`, `voluptuous` |
 | `alarm_control_panel.py` | `CrowAlarmPanel` | `device`, `const` |
@@ -42,7 +43,7 @@ Written once by `CrowConfigFlow.async_step_user`; changed later through the opti
 |---|---|---|---|---|
 | `host` | `CONF_HOST` | `str` | — | IP address or hostname of the IP Module |
 | `port` | `CONF_PORT` | `int` | `5002` | `DEFAULT_PORT` |
-| `keepalive_interval` | `CONF_KEEP_ALIVE` | `int` | `300` | Seconds between `STATUS` probes |
+| `keepalive_interval` | `CONF_KEEP_ALIVE` | `int` | `30` | Seconds between `STATUS` probes; `15`-`3600` (`MIN_KEEPALIVE`/`MAX_KEEPALIVE`), normalised on migration |
 | `timeout` | `CONF_TIMEOUT` | `int` | `10` | TCP connect timeout (seconds) |
 | `firmware_version` | `CONF_FW_VERSION` | `str` | `"Ver 2.10.3628 2017"` | Selection key from `FIRMWARE_PROFILES` |
 | `firmware_date` | `CONF_FW_DATE` | `str` | `"Oct 20 09:48:43"` | Derived from `FIRMWARE_PROFILES` |
@@ -50,6 +51,11 @@ Written once by `CrowConfigFlow.async_step_user`; changed later through the opti
 | `number_of_zones` | `CONF_NUM_ZONES` | `int` | `7` | 1–`MAX_ZONES` (16) |
 | `number_of_outputs` | `CONF_NUM_OUTPUTS` | `int` | `2` | 0–`MAX_OUTPUTS` (8) |
 | `arm_sequence` | `CONF_ARM_SEQUENCE` | `str` | `"command_then_keypad"` | One of `ARM_SEQUENCES`; see §7.1 |
+
+**Config entry version.** `CONFIG_ENTRY_VERSION = 2`. Version 2 exists for the keep-alive
+normalisation only: an entry at version 1 is migrated by `async_migrate_entry()` (§6.1), which raises
+`keepalive_interval` into the supported range and maps the legacy 300 s default onto the current one.
+Every other key keeps its value.
 
 ### 2.2 `entry.options` — user-facing names and codes
 
@@ -99,15 +105,21 @@ Declared in `const.py`; produced by `__init__.py`; consumed by platforms.
 
 | Constant | Value | Payload | Sent when |
 |---|---|---|---|
-| `SIGNAL_ZONE_UPDATE` | `crowipmodule.zones_updated` | zone number (`str`) or `None` | `ZO/ZC/ZA/ZR/ZBY/ZBYR/ZTA/ZTR` parsed, or forced refresh |
-| `SIGNAL_AREA_UPDATE` | `crowipmodule.areas_updated` | `"A"`/`"B"` or `None` | `AA/AB/SA/SB/DA/DB/EAA/EAB/ESA/ESB` parsed |
-| `SIGNAL_SYSTEM_UPDATE` | `crowipmodule.system_updated` | attribute name or `None` | `MF/MR/BF/BR/…` parsed |
-| `SIGNAL_OUTPUT_UPDATE` | `crowipmodule.output_updated` | output number (`str`) | `OO<n>` / `OC<n>` parsed |
-| `SIGNAL_CONNECTION_UPDATE` | `crowipmodule.connection_updated` | `bool` | connect / disconnect / reconnect failure |
-| `SIGNAL_KEYPAD_UPDATE` | `crowipmodule.keypad_updated` | — | Declared; consumed by `CrowAlarmPanel` for compatibility |
+| `SIGNAL_ZONE_UPDATE` | `crowipmodule.zones_updated` | zone number (`str`) or `None` | `ZO/ZC/ZA/ZR/ZBY/ZBYR/ZTA/ZTR` parsed **and changed** |
+| `SIGNAL_AREA_UPDATE` | `crowipmodule.areas_updated` | `"A"`/`"B"` or `None` | `AA/AB/SA/SB/DA/DB/EAA/EAB/ESA/ESB` parsed **and changed** |
+| `SIGNAL_SYSTEM_UPDATE` | `crowipmodule.system_updated` | attribute name or `None` | `MF/MR/BF/BR/…` parsed **and changed** |
+| `SIGNAL_OUTPUT_UPDATE` | `crowipmodule.output_updated` | output number (`str`) | `OO<n>` / `OC<n>` parsed **and changed** |
+| `SIGNAL_CONNECTION_UPDATE` | `crowipmodule.connection_updated` | `bool` | a connection transition - see §5.2. A repeat of the current state is not sent |
+| `SIGNAL_KEYPAD_UPDATE` | `crowipmodule.keypad_updated` | - | Declared; consumed by `CrowAlarmPanel` for compatibility |
 
 **Payload discipline.** Every consumer must treat `None` as "refresh unconditionally" and compare
 the concrete payload against its own ordinal before writing state.
+
+**Change-only dispatch.** A driver state handler returns `None` when the parsed value equals the
+stored one, and `_dispatch_line()` then invokes no callback at all - the "and changed" above. This is
+what keeps a `STATUS` dump that reports no change from rewriting every entity. The `None` payload is
+*not* produced by the driver any more; it remains a valid "refresh all" payload for callers that want
+one.
 
 ---
 
@@ -255,18 +267,28 @@ Note the **default polarity**: mains/line/dialler/battery are `True` (healthy), 
 |---|---|
 | `start()` | Idempotent. Spawns daemon thread `CrowIPClientThread` running `_run_loop`. |
 | `stop()` | Clears the running flag, sets the wakeup event, closes the socket. Safe to call twice. |
-| `is_connected` (property) | `True` only between a successful connect and the next failure. |
-| `recv` timeout | `_RECV_TIMEOUT = 5.0` — the loop wakes at least this often. |
+| `is_connected` (property) | The **raw socket** state: `True` only between a successful connect and the next failure. |
+| `connected` (property) | The connection state **most recently reported** (`_reported_connected`). This is what entity availability follows; it does not dip while a dropped link is retried. |
+| `recv` timeout | `_RECV_TIMEOUT = 5.0` - the loop wakes at least this often. |
 
-### 5.2 `_run_loop()` — supervised connect/listen/backoff
+`CrowIPAlarmPanel` exposes the same pair (`is_connected`, `connected`); `connected` is `False` while
+no client exists.
+
+### 5.2 `_run_loop()` - supervised connect/listen/backoff
 
 ```
 while running:
-    if _connect():
+    connected = _connect()
+    if connected:
+        _notify_connection(True)                   # forwarded only if it differs from the last one
         _reconnect_delay = 10                      # reset backoff
         request_status()                           # handshake: ask for a full dump
         _listen_loop()                             # blocks until disconnect or stop
     if not running: break
+    _is_connected = False; _close_socket()
+    if connected and uptime >= _STABLE_CONNECTION: # 5 s
+        continue                                   # absorb the blip: retry at once, report nothing
+    _notify_connection(False)                      # the outage is real - announce it once
     _wakeup.wait(_reconnect_delay)                 # interruptible sleep
     _reconnect_delay = min(_reconnect_delay * 2, 60)
 ```
@@ -274,21 +296,57 @@ while running:
 Backoff: **10 s → 20 → 40 → 60 (cap)**, reset to 10 on a successful connect. `_wakeup` makes
 `stop()` immediate instead of waiting out the delay.
 
+Two rules keep the churn down and must be preserved:
+
+* **A blip is retried before it is reported.** A link that had held for `_STABLE_CONNECTION` (5 s) is
+  reconnected once, immediately. If that succeeds, `_notify_connection(False)` never runs, no entity is
+  rewritten and no automation sees an `unavailable` state. A link that flaps *faster* than 5 s is
+  treated as a real failure (no immediate retry), which is what stops a panel that accepts and
+  immediately drops from being hammered.
+* **`_notify_connection()` is idempotent.** It compares against `_reported_connected` (guarded by
+  `_state_lock`) and returns without invoking the callback when the state is unchanged, so a failed
+  reconnect attempt cannot re-announce an outage that was already announced.
+
 ### 5.3 Thread safety
 
 | Guard | Protects |
 |---|---|
 | `_send_lock` (`threading.Lock`) | Serialises `sendall` so a command from the loop cannot interleave with a keep-alive |
-| `_state_lock` (`threading.Lock`) | Guards thread start/stop and the running flag |
+| `_state_lock` (`threading.Lock`) | Guards thread start/stop, the running flag, and the `_reported_connected` transition check |
 | `_wakeup` (`threading.Event`) | Interruptible backoff |
 
 `panel.<x>_state` is intentionally **not** locked: the panel thread is the only writer and the
-event loop only reads. See ADD RISK-3.
+event loop only reads. See ACD RISK-3.
 
 ### 5.4 Send failure policy
 
 `send_data()` returning `False` sets `_is_connected = False` and closes the socket. The supervisor
-then reconnects. Writing into a silently-dead socket is never attempted.
+then reconnects (via the blip retry if the link had been stable). Writing into a silently-dead socket
+is never attempted.
+
+### 5.5 RX dispatch policy
+
+| Step | Rule |
+|---|---|
+| Parse | `_parse_line()` matches the line against `RESPONSE_FORMATS`; no match returns `{}` and the line is dropped |
+| Handle | `handle_*_state_change()` mutates `panel.<x>_state` and returns the payload to dispatch |
+| **Unchanged** | A handler whose value equals the stored one returns `None`; `_dispatch_line()` then calls **no callback**, so no signal and no entity write |
+| Dispatch | The callback named in the format table (`callback_<handler>`) is invoked with the payload |
+| Failure | A handler or callback exception is logged and swallowed; the listen loop keeps running |
+
+`handle_zone_state_change()` is the one handler with a side effect: a zone *alarm* transition also
+updates every area's `alarm`/`alarm_zone` and invokes the area callback for `"A"` and `"B"`, so the
+alarm panel entities refresh alongside the zone sensor.
+
+### 5.6 Keep-alive
+
+| Aspect | Rule |
+|---|---|
+| Purpose | The `STATUS` probe is what keeps the module's socket open; the module closes an idle connection on its own |
+| Default | `DEFAULT_KEEPALIVE = 30` s - the panel driver's own interval. The 300 s shipped before 2.2.0 is longer than the module's idle timeout, which made the module drop the socket first |
+| Bounds | `MIN_KEEPALIVE = 15`, `MAX_KEEPALIVE = 3600`; `const.normalise_keepalive()` maps the legacy 300 s onto the default and clamps anything else into range |
+| Enforced at | the config/options flow (`vol.Range`), the driver (`_MIN_KEEPALIVE`/`_MAX_KEEPALIVE` clamp), and the config-entry migration |
+| Cost | One short line every 30 s. The reply is a full status dump, but a dump whose values are unchanged dispatches nothing (see §5.5), so it costs no entity writes |
 
 ---
 
@@ -300,9 +358,16 @@ then reconnects. Writing into a silently-dead socket is never attempted.
 PLATFORMS = [ALARM_CONTROL_PANEL, BINARY_SENSOR, BUTTON, SENSOR, SWITCH]
 ```
 
+**`async_migrate_entry(hass, entry) -> bool`** - config entry version 1 → 2 normalises
+`keepalive_interval` through `const.normalise_keepalive()` (the legacy 300 s default becomes the 30 s
+default, anything else is clamped into `15`-`3600`), writes `entry.data` and the version back with
+`hass.config_entries.async_update_entry()` and logs the change. An entry newer than
+`CONFIG_ENTRY_VERSION` returns `False` (no downgrade).
+
 **`async_setup_entry(hass, entry) -> bool`**, in order:
 
-1. Read `host`, `port`, `keepalive_interval`, `connection_timeout` from `entry.data`.
+1. Read `host`, `port`, `keepalive_interval` (through `normalise_keepalive()`), `connection_timeout`
+   from `entry.data`.
 2. Construct `CrowIPAlarmPanel(host, port, "0000", keep_alive, None, connection_timeout)`.
    A constructor failure logs and returns `False`.
 3. Build `entry.runtime_data = CrowRuntimeData(controller, firmware=f"{fw} ({date})")`.
@@ -310,32 +375,36 @@ PLATFORMS = [ALARM_CONTROL_PANEL, BINARY_SENSOR, BUTTON, SENSOR, SWITCH]
    `callback_zone_state_change`, `callback_area_state_change`, `callback_system_state_change`,
    `callback_output_state_change`, `callback_connected`, `callback_login_timeout`.
 5. **Register the hub device** with `dr.async_get(hass).async_get_or_create(...)`, then store
-   `hub_device.id` into `runtime_data.device_id` (required before any platform runs — DEC-5).
-6. `await asyncio.sleep(2.0)` — let the panel release a socket left over from a reload.
+   `hub_device.id` into `runtime_data.device_id` (required before any platform runs - DEC-5).
+6. `await asyncio.sleep(2.0)` - let the panel release a socket left over from a reload.
 7. `await hass.async_add_executor_job(controller.start)`.
 8. `await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)`.
 9. Register `async_on_unload`: an `EVENT_HOMEASSISTANT_STOP` listener that calls
    `controller.stop()` in the executor, and `entry.add_update_listener(update_listener)`.
 
-**`_thread_safe_send(signal, data)`** — the only bridge from the panel thread:
+**`_thread_safe_send(signal, data)`** - the only bridge from the panel thread:
 
 ```python
 hass.loop.call_soon_threadsafe(async_dispatcher_send, hass, signal, data)
 ```
 
-**`connected_callback(data)`** — publishes `SIGNAL_CONNECTION_UPDATE`; when connecting, schedules a
-delayed refresh via `asyncio.run_coroutine_threadsafe(delayed_refresh(), hass.loop)` (safe from a
-non-loop thread, unlike `loop.create_task`) that re-broadcasts all four state signals with `None`
-after 2 s. This is what clears the "Unknown" state after a restart.
+**`connected_callback(data)`** - publishes `SIGNAL_CONNECTION_UPDATE`. The driver calls it only on a
+real transition (see §5.2), so nothing has to be deduplicated here. It does **not** broadcast a
+refresh: `request_status()` on connect already asks for a full status dump, and only the values that
+changed are dispatched (§5.5), so a second broadcast would rewrite every entity for nothing.
 
-**`async_unload_entry`** — unloads platforms, then stops the controller **in the executor** if
+**`connection_fail_callback(data)`** - logs at debug when a connect attempt fails. The driver keeps
+retrying on its own; if the outage is real it is reported through `connected_callback` once the
+immediate retry has failed.
+
+**`async_unload_entry`** - unloads platforms, then stops the controller **in the executor** if
 `entry.runtime_data` exists (guards a failed setup), then sleeps 2 s to let the single TCP socket be
 released before a potential re-setup. Returns the platform-unload result.
 
-**`update_listener`** — `async_reload(entry.entry_id)`, so option changes (names, codes, zone
+**`update_listener`** - `async_reload(entry.entry_id)`, so option changes (names, codes, zone
 types, counts) take effect immediately.
 
-### 6.2 `device.py`
+### 6.2 `device.py` and `entity.py`
 
 ```python
 @dataclass
@@ -357,7 +426,14 @@ aborted device registration outright.
 
 `build_device_info()` emits only the keys that have values, always using the shared `MANUFACTURER`
 and identifier constants. **All six device-info call sites use it** — see §7.0.
+`entity.py` holds `CrowConnectionEntity`, the mixin every platform base class mixes in first
+(`class CrowBaseEntity(CrowConnectionEntity, BinarySensorEntity)`):
 
+| Member | Contract |
+|---|---|
+| `available` (property) | `self._controller.connected` - the *reported* connection state, so a link the driver is retrying does not change availability |
+| `_connection_callback(_connected)` | `async_write_ha_state()`, subscribed to `SIGNAL_CONNECTION_UPDATE` by each platform in `async_added_to_hass` |
+| `async_entity_id_changed(old_entity_id)` | Calls `super().async_entity_id_changed(old)` **when the base class has it** (`getattr(super(), …, None)`) and does nothing otherwise. Present so the integration opts in to the in-place `entity_id` change that becomes the default in Home Assistant 2026.11 instead of being removed and added again on every rename. Nothing here keys on `entity_id`, so `super()` is all that has to run. |
 ### 6.3 Device registry layout
 
 | Device | Identifier | Model | Linked to hub |
@@ -386,10 +462,16 @@ deletes such a device as soon as nothing is registered on it any more. `crow_ala
 |---|---|
 | `_attr_should_poll` | `False` (push only) |
 | `_attr_has_entity_name` | `True` |
-| `available` | `self._controller.is_connected` |
+| `available` | `self._controller.connected` (via `CrowConnectionEntity`) - the reported state, not the raw socket |
 | Subscriptions | `async_dispatcher_connect` in `async_added_to_hass`, removed via `async_on_remove` |
+| `async_entity_id_changed` | inherited from `CrowConnectionEntity`; opts in to in-place `entity_id` changes (HA 2026.11+) |
 | `device_info` | `build_device_info(...)`, hub identifier unless stated |
 | `sw_version` | `runtime_data.firmware` |
+
+Every platform base class mixes `CrowConnectionEntity` in **first**, so `available`, the connection
+callback and the `entity_id` hook come from one place:
+`class CrowBaseEntity(CrowConnectionEntity, BinarySensorEntity)`,
+`class CrowBaseSwitch(CrowConnectionEntity, SwitchEntity)`, and so on.
 
 ```mermaid
 classDiagram
@@ -570,7 +652,7 @@ Relays are created unconditionally by the platform (unlike switches, which follo
 
 ### 8.1 Config flow — `CrowConfigFlow`
 
-`VERSION = 1`. Four steps; the zone step holds **all** zones at once.
+`VERSION = CONFIG_ENTRY_VERSION` (2, see §2.1). Four steps; the zone step holds **all** zones at once.
 
 ```mermaid
 stateDiagram-v2
@@ -614,7 +696,7 @@ Firmware date is derived on submit:
 `selector.arm_sequence.options` section of the translation files rather than from raw identifiers.
 
 There is **no `async_step_import`**: no `CONFIG_SCHEMA` is defined, so a YAML block cannot trigger an
-import (ADD RISK-4).
+import (ACD RISK-4).
 
 ### 8.2 Options flow — `CrowOptionsFlowHandler`
 
@@ -680,7 +762,7 @@ logger:
 |---|---|
 | Parser | Unknown lines are ignored silently at debug level; never raise |
 | Handlers / callbacks | Wrapped in `try/except`, logged, never propagate (protects the worker thread) |
-| Command send | Failure closes the socket so the supervisor reconnects |
+| Command send | Failure closes the socket so the supervisor reconnects (immediately if the link had been stable) |
 | Entity commands | Wrapped in `try/except` with `_LOGGER.error`; entities never raise to the service call |
 | Arming without a code | Keypad mode still sends the arm command and logs a warning; `arm_sequence` resolution never raises |
 | Disarming without a code | Logs an error and sends nothing (a digit-less `KEYS E` is meaningless) |
@@ -691,17 +773,18 @@ logger:
 
 ## 12. Verification strategy
 
-Home Assistant 2026.9 requires **Python 3.14.2+**, so the test story is deliberately layered:
+Home Assistant 2026.10 requires **Python 3.14.2+**, so the test story is deliberately layered:
 
 | Layer | Artefact | Runs with | Covers |
 |---|---|---|---|
-| Protocol | `test_crow_protocol.py` | bare Python | Command wire formats, RX parsing, state handlers, a real loopback socket end-to-end |
-| HA contract | `tests/verify_ha_2026_contract.py` | bare Python + stubs | Every platform's `async_setup_entry`; asserts no `via_device` in any `device_info`, zone `via_device_id == hub id`, `alarm_state` for all seven states, the emitted wire sequence for **both** `arm_sequence` modes (including the `KEYS <code>E` follow-up and the disarm path), option precedence over `entry.data`, `configuration_url` sanitising, availability wiring |
-| Config flow | `tests/verify_config_flow.py` | bare Python + `voluptuous` | Full 5-step flow, pagination, options flow, translation coverage for all fields and languages, and the `arm_sequence` selector (options offered, translation key, rejection of unknown values) |
+| Protocol | `test_crow_protocol.py` | bare Python | Command wire formats, RX parsing, state handlers, **change-only dispatch** (a repeated line dispatches nothing), the **connection-state machine** (deduplicated transitions, blip absorption, backoff growth), keep-alive clamping, and a real loopback socket end-to-end |
+| HA contract | `tests/verify_ha_2026_contract.py` | bare Python + stubs | Every platform's `async_setup_entry`; asserts no `via_device` in any `device_info`, zone `via_device_id == hub id`, `alarm_state` for all seven states, the emitted wire sequence for **both** `arm_sequence` modes (including the `KEYS <code>E` follow-up and the disarm path), option precedence over `entry.data`, `configuration_url` sanitising, availability wiring (`connected`, not `is_connected`), the `async_entity_id_changed` opt-in, keep-alive normalisation and the config-entry migration |
+| Config flow | `tests/verify_config_flow.py` | bare Python + `voluptuous` | Full 5-step flow, pagination, options flow, translation coverage for all fields and languages, the `arm_sequence` selector (options offered, translation key, rejection of unknown values), the keep-alive range and the stored entry version |
 | Static | `python -m compileall custom_components` | bare Python | Syntax across the integration |
 
-The stubs reproduce the **real** 2026.9.3 definitions that matter (`DeviceInfo` as `total=False` with
-`via_device_id`; `BinarySensorDeviceClass` as `StrEnum`; `EntityCategory` in `homeassistant.const`).
+The stubs reproduce the **real** 2026.10 definitions that matter (`DeviceInfo` as `total=False` with
+`via_device_id`; `BinarySensorDeviceClass` as `StrEnum`; `EntityCategory` in `homeassistant.const`;
+`Entity.async_entity_id_changed`).
 They found two real defects during development, which is why they are kept in-tree.
 
 ---
@@ -710,9 +793,9 @@ They found two real defects during development, which is why they are kept in-tr
 
 | Requirement | Implementation | Verified by |
 |---|---|---|
-| G1 HA 2026.9.3 conformance | ADD §7 table | `tests/verify_ha_2026_contract.py` |
+| G1 HA 2026.10.1 conformance | ACD §7 table | `tests/verify_ha_2026_contract.py` |
 | G2 No pip dependency | vendored driver, no `requirements` | HACS install; manifest inspection |
-| G3 Availability correctness | `available` + connection signal | `tests/verify_ha_2026_contract.py` |
+| G3 Availability correctness | `available` follows `connected`; driver reports transitions only and absorbs blips | `test_crow_protocol.py`; `tests/verify_ha_2026_contract.py` |
 | G4 Full signal coverage | §4.3 tables | `test_crow_protocol.py` |
 | G5 Diagnosability | `diagnostics.py`, System Status sensor | `tests/verify_ha_2026_contract.py` |
 | G6 First-class presentation | `brand/`, `strings.json`, 5 translations | `tests/verify_config_flow.py`; release archive listing |

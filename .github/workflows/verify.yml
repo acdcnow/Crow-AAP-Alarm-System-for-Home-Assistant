@@ -1,8 +1,8 @@
-# Verification for the Crow/AAP alarm integration, Home Assistant 2026.9.
+# Verification for the Crow/AAP alarm integration, Home Assistant 2026.10.
 #
 # This replaces the generic "Python application" template that shipped with the
 # repository. That template pinned Python 3.10 (this integration targets Home
-# Assistant 2026.9, which requires Python 3.14.2+) and ran `pytest` over a
+# Assistant 2026.10, which requires Python 3.14.2+) and ran `pytest` over a
 # repository that contains no pytest tests, so it could only ever fail.
 #
 # The three harnesses below are the project's real verification. They stub the
@@ -38,7 +38,7 @@ jobs:
       - name: Protocol driver self-test
         run: python test_crow_protocol.py
 
-      - name: Home Assistant 2026.9 contract
+      - name: Home Assistant 2026.10 contract
         run: python tests/verify_ha_2026_contract.py
 
       - name: Config flow and translations

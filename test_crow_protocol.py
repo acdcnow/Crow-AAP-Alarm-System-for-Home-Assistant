@@ -26,9 +26,10 @@ from pycrowipmodule import CrowIPAlarmPanel, CrowIPModuleClient  # noqa: E402
 _failures = []
 
 
-def check(label, condition):
+def check(label, condition, extra=""):
     status = "PASS" if condition else "FAIL"
-    print(f"[{status}] {label}")
+    suffix = f" -> {extra}" if extra and not condition else ""
+    print(f"[{status}] {label}{suffix}")
     if not condition:
         _failures.append(label)
 
@@ -128,6 +129,147 @@ def test_parsing():
 
 
 # --------------------------------------------------------------------------- #
+# 2b. Change-only dispatch - the fix for the state churn
+# --------------------------------------------------------------------------- #
+def test_change_only_dispatch():
+    print("\n== Change-only dispatch ==")
+    panel = CrowIPAlarmPanel("127.0.0.1", 5002, "0000", 30, None, 5)
+    client = CrowIPModuleClient(panel)
+
+    fired = []
+    panel.callback_zone_state_change = lambda data: fired.append(("zone", data))
+    panel.callback_area_state_change = lambda data: fired.append(("area", data))
+    panel.callback_system_state_change = lambda data: fired.append(("system", data))
+    panel.callback_output_state_change = lambda data: fired.append(("output", data))
+
+    client._dispatch_line("ZO1")
+    check("ZO1 is dispatched once", fired == [("zone", "1")], str(fired))
+
+    fired.clear()
+    client._dispatch_line("ZO1")
+    check("a repeated ZO1 is not dispatched again", fired == [], str(fired))
+
+    fired.clear()
+    client._dispatch_line("ZC1")
+    check("ZC1 (a real change) is dispatched", fired == [("zone", "1")], str(fired))
+
+    fired.clear()
+    client._dispatch_line("MF")
+    client._dispatch_line("MF")
+    check("a repeated system line is dispatched once", fired == [("system", "mains")], str(fired))
+
+    fired.clear()
+    client._dispatch_line("OO2")
+    client._dispatch_line("OO2")
+    check("a repeated output line is dispatched once", fired == [("output", "2")], str(fired))
+
+    fired.clear()
+    client._dispatch_line("AA")
+    client._dispatch_line("AA")
+    check("a repeated area line is dispatched once", fired == [("area", "A")], str(fired))
+
+    fired.clear()
+    client._dispatch_line("DA")
+    client._dispatch_line("DA")
+    check("re-arming then re-disarming reports only the change",
+          fired == [("area", "A")], str(fired))
+
+
+# --------------------------------------------------------------------------- #
+# 2c. Connection-state machine - the fix for the flapping
+# --------------------------------------------------------------------------- #
+class _ScriptedClient(CrowIPModuleClient):
+    """Driver with the socket replaced by a script of connect outcomes.
+
+    ``script`` holds "up"/"down" entries, one per supervisor iteration. The
+    listen loop returns at once, so a "drop" is simulated by following an "up"
+    with the next connection outcome. When the script is exhausted the driver
+    stops itself, which makes ``_run_loop`` finish deterministically.
+    """
+
+    def __init__(self, panel, script, stable=0.0):
+        super().__init__(panel)
+        self.script = list(script)
+        self._stable_connection = stable
+        self.connected_attempts = 0
+
+    def _connect(self):
+        if not self.script:
+            self._running = False
+            return False
+        connected = self.script.pop(0) == "up"
+        self._is_connected = connected
+        if connected:
+            self.connected_attempts += 1
+        return connected
+
+    def _listen_loop(self):
+        return
+
+    def request_status(self):
+        return True
+
+
+def test_connection_state():
+    print("\n== Connection state machine ==")
+
+    panel = CrowIPAlarmPanel("127.0.0.1", 5002, "0000", 30, None, 5)
+    reported = []
+    panel.callback_connected = lambda value: reported.append(bool(value))
+    client = CrowIPModuleClient(panel)
+
+    client._notify_connection(True)
+    client._notify_connection(True)
+    client._notify_connection(False)
+    client._notify_connection(False)
+    check("each connection transition is reported exactly once",
+          reported == [True, False], str(reported))
+    check("connected mirrors the reported state", client.connected is False)
+    check("is_connected stays the raw socket flag", client.is_connected is False)
+
+    # A link that had been up is dropped and recovers on the immediate retry:
+    # Home Assistant must never hear about that blip.
+    panel = CrowIPAlarmPanel("127.0.0.1", 5002, "0000", 30, None, 5)
+    events = []
+    panel.callback_connected = lambda value: events.append(bool(value))
+    blip = _ScriptedClient(panel, ["up", "down", "up"])
+    blip._wakeup.set()  # do not wait out the backoff
+    blip._running = True
+    blip._run_loop()
+    check("a blip that heals on the immediate retry is never reported",
+          events == [True, False, True], str(events))
+    check("the immediate retry reused the same connection state",
+          blip.connected_attempts == 2, str(blip.connected_attempts))
+
+    # A link that never comes up is reported missing, and the driver backs off
+    # instead of hammering the panel.
+    panel = CrowIPAlarmPanel("127.0.0.1", 5002, "0000", 30, None, 5)
+    events = []
+    panel.callback_connected = lambda value: events.append(bool(value))
+    dead = _ScriptedClient(panel, ["down", "down", "down"])
+    dead._wakeup.set()
+    dead._running = True
+    dead._run_loop()
+    check("a panel that never connects reports no connection at all",
+          events == [], str(events))
+    check("the backoff grows while the panel is unreachable",
+          dead._reconnect_delay > dead._base_reconnect_delay,
+          str(dead._reconnect_delay))
+
+
+def test_keepalive_bounds():
+    print("\n== Keep-alive bounds ==")
+    low = CrowIPAlarmPanel("127.0.0.1", 5002, "0000", 0, None, 5)
+    check("a zero keep-alive does not become a probe flood",
+          CrowIPModuleClient(low).keepalive >= 15,
+          str(CrowIPModuleClient(low).keepalive))
+    high = CrowIPAlarmPanel("127.0.0.1", 5002, "0000", 100000, None, 5)
+    check("an absurd keep-alive is capped",
+          CrowIPModuleClient(high).keepalive <= 3600,
+          str(CrowIPModuleClient(high).keepalive))
+
+
+# --------------------------------------------------------------------------- #
 # 3. End-to-end loopback test (real sockets + worker thread)
 # --------------------------------------------------------------------------- #
 def test_loopback():
@@ -142,15 +284,18 @@ def test_loopback():
         try:
             conn, _ = server.accept()
             conn.sendall(b"AA\r\nZO1\r\nMF\r\n")
-            time.sleep(1.5)
+            # Hold the connection open until the test releases it, so the
+            # "connected" assertions below cannot race the server closing.
+            release.wait(5.0)
             conn.close()
         except OSError:
             pass
 
+    release = threading.Event()
     t = threading.Thread(target=serve, daemon=True)
     t.start()
 
-    panel = CrowIPAlarmPanel("127.0.0.1", port, "0000", 300, None, 5)
+    panel = CrowIPAlarmPanel("127.0.0.1", port, "0000", 30, None, 5)
     connected = {"v": False}
     panel.callback_connected = lambda v: connected.__setitem__("v", bool(v))
     panel.start()
@@ -168,6 +313,7 @@ def test_loopback():
     check("loopback: mains fail via MF", panel.system_state["status"]["mains"] is False)
     check("loopback: is_connected True", panel.is_connected is True)
 
+    release.set()
     panel.stop()
     server.close()
     time.sleep(0.3)
@@ -177,6 +323,9 @@ def test_loopback():
 if __name__ == "__main__":
     test_commands()
     test_parsing()
+    test_change_only_dispatch()
+    test_connection_state()
+    test_keepalive_bounds()
     test_loopback()
 
     print("\n" + "=" * 40)
