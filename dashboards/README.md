@@ -1,7 +1,7 @@
 # Dashboard
 
 A ready-to-use Lovelace dashboard for the `crowipmodule` integration, built for
-**Home Assistant 2026.9** (`sections` view).
+**Home Assistant 2026.10** (`sections` view).
 
 Two dashboards in one file, switched with a helper you already have:
 
@@ -30,7 +30,7 @@ The expert sections are added below the standard ones, never instead of them.
 
 ## Requirements
 
-* Home Assistant **2026.9** or newer - the dashboard uses the `sections` view,
+* Home Assistant **2026.10.1** or newer - the dashboard uses the `sections` view,
   section `visibility`, tile `state_content`, the `alarm-modes` tile feature and
   heading badges.
 * The `crowipmodule` integration (this repository).

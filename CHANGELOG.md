@@ -36,8 +36,8 @@ much of the panel's chatter was forwarded to Home Assistant.
 
 ### 🛠 Changed
 
-* **Minimum Home Assistant is now 2026.10.1.** `hacs.json`, the README and `info.md` were updated;
-  users still on 2026.9 should stay on `2.1.4`.
+* **Minimum Home Assistant is now 2026.10.1.** `hacs.json`, the README, `info.md` and the dashboard
+  documentation were updated; users still on 2026.9 should stay on `2.1.4`.
 * **Entity availability follows the *reported* connection state.** `CrowIPAlarmPanel.connected` is now
   the value entities read, instead of the raw socket flag that dips while a link is retried.
   Diagnostics reports both (`connected` and `socket_connected`).

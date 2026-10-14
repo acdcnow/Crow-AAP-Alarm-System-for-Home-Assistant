@@ -357,7 +357,7 @@ flowchart LR
 ```
 
 Green nodes mark what the 2026.9 development branch added or changed; `entity.py` and the
-connection handling were added in `2.2.0b1`.
+connection handling were added in `2.2.0`.
 
 ---
 

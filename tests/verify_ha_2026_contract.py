@@ -108,7 +108,7 @@ dr = mod("homeassistant.helpers.device_registry")
 
 
 class DeviceInfo(TypedDict, total=False):
-    """Verbatim HA 2026.9.3 DeviceInfo contract."""
+    """Verbatim HA 2026.10 DeviceInfo contract."""
 
     configuration_url: str | None
     connections: set[tuple[str, str]]

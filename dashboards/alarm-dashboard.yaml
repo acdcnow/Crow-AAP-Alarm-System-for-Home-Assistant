@@ -1,6 +1,6 @@
 # =============================================================================
 #  Crow/AAP Alarmanlage - Lovelace dashboard
-#  Home Assistant 2026.9 - sections view
+#  Home Assistant 2026.10 - sections view
 # -----------------------------------------------------------------------------
 #  Two dashboards in one file, switched with a helper:
 #
@@ -17,7 +17,7 @@
 #
 #  Requires
 #  --------
-#    * Home Assistant 2026.9 or newer (sections view, section `visibility`,
+#    * Home Assistant 2026.10.1 or newer (sections view, section `visibility`,
 #      tile `state_content`, the `alarm-modes` tile feature, heading badges).
 #    * custom_components/crowipmodule (this repo).
 #    * Exactly ONE helper, which you already have:

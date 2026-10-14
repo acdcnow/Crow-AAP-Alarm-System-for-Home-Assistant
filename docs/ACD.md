@@ -434,7 +434,7 @@ Verified against the real 2026.10 sources; each row is asserted by
 ```
 <config>/custom_components/crowipmodule/
 ```
-Installed by HACS from GitHub release archive `2.2.0b1` (or the branch), or copied manually.
+Installed by HACS from GitHub release archive `2.2.0` (or the branch), or copied manually.
 Home Assistant imports the package at startup; the config entry lives in
 `.storage/core.config_entries`, not in YAML. Per-entry runtime objects are constructed at setup and
 released at unload.
