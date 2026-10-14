@@ -1,6 +1,11 @@
 # Changelog
 
-## [2.2.0b1] - 2026-10-13
+## [2.2.0] - 2026-10-14
+
+The stable release. It carries everything the `2.2.0b1` pre-release (2026-10-13) tested - the
+connection-handling rework described below - on top of the zone-device rework of the first `2.2.0`
+build (2026-10-10), and it is the build the `2.2.0` tag points at. Updating from `2.2.0b1` or from the
+earlier `2.2.0` build needs no configuration change.
 
 Fixes the connection handling. An install could go *Unavailable* and back to *connected* every few
 minutes, and every one of those cycles rewrote the state of every entity - which is where the bulk of
@@ -32,7 +37,7 @@ much of the panel's chatter was forwarded to Home Assistant.
 ### 🛠 Changed
 
 * **Minimum Home Assistant is now 2026.10.1.** `hacs.json`, the README and `info.md` were updated;
-  users still on 2026.9 should stay on `2.2.0`.
+  users still on 2026.9 should stay on `2.1.4`.
 * **Entity availability follows the *reported* connection state.** `CrowIPAlarmPanel.connected` is now
   the value entities read, instead of the raw socket flag that dips while a link is retried.
   Diagnostics reports both (`connected` and `socket_connected`).
@@ -55,10 +60,11 @@ much of the panel's chatter was forwarded to Home Assistant.
 * **No configuration change is needed** - no re-adding of zones or the integration.
 * The integration no longer needs a restart to recover from a brief network interruption: it recovers
   silently and only reports an outage that outlives its retry.
-* ⚠️ `2.2.0b1` sorts **below** `2.2.0`, so HACS will not offer it as an update even with *Show beta
-  versions* enabled.
+* ⚠️ The `2.2.0` tag was moved onto this build, so an installation that still runs the first `2.2.0`
+  build sees the same version number and HACS will not offer an update - use *Redownload* in HACS, or
+  reinstall the integration. Installations on `2.2.0b1` are updated normally (`2.2.0b1` < `2.2.0`).
 
-## [2.2.0] - 2026-10-10
+## [2.2.0] - 2026-10-10 (first build, superseded)
 
 The promotion of `2.2.0-beta.1` to stable - same behaviour, no configuration change. The beta was
 published for testing and is superseded by this release.

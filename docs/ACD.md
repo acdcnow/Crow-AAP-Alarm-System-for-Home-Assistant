@@ -3,9 +3,9 @@
 **Project:** Crow/AAP Alarm IP Module for Home Assistant
 **Integration domain:** `crowipmodule`
 **Branch:** `master`
-**Version:** `2.2.0b1`
-**Status:** Beta
-**Last updated:** 2026-10-13
+**Version:** `2.2.0`
+**Status:** Released
+**Last updated:** 2026-10-14
 
 ---
 

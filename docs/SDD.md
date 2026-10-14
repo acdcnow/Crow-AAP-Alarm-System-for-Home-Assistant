@@ -2,8 +2,8 @@
 
 **Project:** Crow/AAP Alarm IP Module for Home Assistant
 **Integration domain:** `crowipmodule`
-**Branch:** `master` · **Version:** `2.2.0b1` · **Status:** beta
-**Last updated:** 2026-10-13
+**Branch:** `master` · **Version:** `2.2.0` · **Status:** released
+**Last updated:** 2026-10-14
 
 This document specifies **how** the integration is built: modules, signatures, data shapes,
 protocol tables and per-entity contracts. Read the [ACD](ACD.md) first for the architectural

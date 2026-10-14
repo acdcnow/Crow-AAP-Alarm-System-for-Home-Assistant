@@ -105,7 +105,7 @@ Here is a detailed **CHANGELOG** summarizing the refactoring from the original Y
 
 # Changelog
 
-## [2.2.0b1] - Connection handling, Home Assistant 2026.10.1
+## [2.2.0] - Connection handling, Home Assistant 2026.10.1
 
 Fixes the flapping between *Unavailable* and *connected*, and the flood of state
 writes it caused.

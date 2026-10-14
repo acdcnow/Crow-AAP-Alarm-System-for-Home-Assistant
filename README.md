@@ -8,10 +8,10 @@ This is a custom integration for **Home Assistant** to control **Crow Runner**, 
 
 Unlike previous solutions, this integration uses a **direct local TCP implementation** (the driver is vendored inside the integration, so no external Python dependency is installed) to ensure robust connection handling, specific command sequences (`Code` -> `Command` -> `Enter`), and accurate status parsing.
 
-> **Current release: `2.2.0b1` (beta).** Targets Home Assistant 2026.10.1.
-> Users still on Home Assistant 2026.9 should stay on `2.2.0`.
+> **Current release: `2.2.0`.** Targets Home Assistant 2026.10.1.
+> Users still on Home Assistant 2026.9 should stay on `2.1.4`.
 >
-> `2.2.0b1` fixes the connection handling that made the integration flap between
+> `2.2.0` fixes the connection handling that made the integration flap between
 > *Unavailable* and *connected* and wrote far more state than necessary:
 >
 > * a link that drops and recovers within one reconnect is **never reported** - no
@@ -23,15 +23,16 @@ Unlike previous solutions, this integration uses a **direct local TCP implementa
 > * a keep-alive outside a usable range can no longer be configured or stored.
 >
 > It also moves the minimum Home Assistant to **2026.10.1** and adopts the entity
-> lifecycle hook introduced in 2026.10. Everything from `2.2.0` is included - the
-> single *Crow Alarm Sensors* device, the retired per-type devices, the untouched
-> entity ids and the arm-sequence option.
+> lifecycle hook introduced in 2026.10. Everything from the earlier `2.2.0` build is
+> included - the single *Crow Alarm Sensors* device, the retired per-type devices,
+> the untouched entity ids and the arm-sequence option.
 >
-> ⚠️ `2.2.0b1` sorts **below** `2.2.0`, so HACS will not offer it as an update even
-> with *Show beta versions* enabled - install it manually, or publish it under a
-> higher version number.
+> ⚠️ The `2.2.0` tag now points at this build, so an installation that still runs the
+> earlier `2.2.0` build sees the same version number and HACS will not offer an
+> update - use *Redownload* in HACS, or reinstall the integration. Installations on
+> `2.2.0b1` are updated normally.
 >
-> The `2.1.0-beta.*` and `2.2.0-beta.1` pre-releases are superseded.
+> The `2.1.0-beta.*`, `2.2.0-beta.1` and `2.2.0b1` pre-releases are superseded.
 
 ## ✅ Requirements
 

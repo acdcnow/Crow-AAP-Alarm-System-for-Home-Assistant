@@ -1,8 +1,8 @@
 # Workflows and Diagrams
 
 **Project:** Crow/AAP Alarm IP Module for Home Assistant
-**Branch:** `master` · **Version:** `2.2.0b1`
-**Last updated:** 2026-10-13
+**Branch:** `master` · **Version:** `2.2.0`
+**Last updated:** 2026-10-14
 
 Every diagram below is **Mermaid**, so it renders natively on GitHub, in the wiki, and in any
 Mermaid-capable viewer. The narrative companion is the [ACD](ACD.md); the module-level detail is the
